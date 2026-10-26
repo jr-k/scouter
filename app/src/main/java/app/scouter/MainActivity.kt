@@ -3,9 +3,10 @@ package app.scouter
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.ComponentName
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -16,8 +17,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,13 +33,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -53,21 +63,51 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Directions
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.window.Dialog
 import app.scouter.overlay.ScouterOverlayService
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private var overlayGranted by mutableStateOf(false)
     private var notificationsGranted by mutableStateOf(false)
     private var batteryExempt by mutableStateOf(false)
-    private var showPermissions by mutableStateOf(false)
-    private var showSettings by mutableStateOf(false)
+    private var currentTab by mutableStateOf(AppTab.Home)
+    private var historyEntries by mutableStateOf(emptyList<ScouterHistoryEntry>())
     private var networkAddress by mutableStateOf("")
     private var networkToken by mutableStateOf("")
+    private var pullDownAction by mutableStateOf(PullDownAction.Minimize)
+    private var minimizeOnAction by mutableStateOf(false)
+    private var sheetControlsSide by mutableStateOf(SheetControlsSide.Right)
     private var networkSettings by mutableStateOf(
         ScouterNetworkConfig.NetworkSettings(
             enabled = true,
@@ -78,57 +118,75 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { refreshPermissionState() }
+    private val historyChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            refreshHistory()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         networkSettings = ScouterNetworkConfig.settings(this)
         networkAddress = ScouterNetworkConfig.localAddress(this)
         networkToken = ScouterNetworkConfig.token(this)
+        pullDownAction = ScouterPreferences.pullDownAction(this)
+        minimizeOnAction = ScouterPreferences.minimizeOnAction(this)
+        sheetControlsSide = ScouterPreferences.sheetControlsSide(this)
+        refreshHistory()
+        ContextCompat.registerReceiver(
+            this,
+            historyChangedReceiver,
+            IntentFilter(ScouterHistoryStore.ACTION_HISTORY_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         startForegroundService(Intent(this, ScouterOverlayService::class.java))
         setContent {
-            if (showSettings) {
-                SettingsScreen(
-                    settings = networkSettings,
-                    address = networkAddress,
-                    token = networkToken,
-                    onBack = { showSettings = false },
-                    onSaveNetwork = ::saveNetworkSettings,
-                    onRegenerateToken = ::regenerateNetworkToken,
-                )
-            } else if (showPermissions) {
-                PermissionsScreen(
-                    overlayGranted = overlayGranted,
-                    notificationsGranted = notificationsGranted,
-                    batteryExempt = batteryExempt,
-                    onBack = { showPermissions = false },
-                    requestOverlay = ::requestOverlay,
-                    requestNotifications = ::requestNotifications,
-                    requestBatteryExemption = ::requestBatteryExemption,
-                    openAppSettings = ::openAppSettings,
-                )
-            } else {
-                ScouterHome(
-                    overlayGranted = overlayGranted,
-                    networkAddress = networkAddress,
-                    networkToken = networkToken,
-                    requestOverlay = ::requestOverlay,
-                    showPermissions = { showPermissions = true },
-                    showSettings = { showSettings = true },
-                    showDemo = ::showDemo,
-                )
-            }
+            ScouterApp(
+                currentTab = currentTab,
+                onTabSelected = {
+                    currentTab = it
+                    if (it == AppTab.Home) refreshHistory()
+                },
+                history = historyEntries,
+                overlayGranted = overlayGranted,
+                notificationsGranted = notificationsGranted,
+                batteryExempt = batteryExempt,
+                networkAddress = networkAddress,
+                networkToken = networkToken,
+                networkSettings = networkSettings,
+                pullDownAction = pullDownAction,
+                minimizeOnAction = minimizeOnAction,
+                sheetControlsSide = sheetControlsSide,
+                requestOverlay = ::requestOverlay,
+                requestNotifications = ::requestNotifications,
+                requestBatteryExemption = ::requestBatteryExemption,
+                openAppSettings = ::openAppSettings,
+                onSaveNetwork = ::saveNetworkSettings,
+                onRegenerateToken = ::regenerateNetworkToken,
+                onPullDownActionChange = ::savePullDownAction,
+                onMinimizeOnActionChange = ::saveMinimizeOnAction,
+                onSheetControlsSideChange = ::saveSheetControlsSide,
+                reopenHistory = ::reopenHistory,
+                clearHistory = ::clearHistory,
+            )
         }
     }
 
     override fun onResume() {
         super.onResume()
         refreshPermissionState()
+        refreshHistory()
         networkAddress = ScouterNetworkConfig.localAddress(this)
         if (Build.VERSION.SDK_INT >= 33 &&
             !notificationsGranted
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    override fun onDestroy() {
+        unregisterReceiver(historyChangedReceiver)
+        super.onDestroy()
     }
 
     private fun requestOverlay() {
@@ -188,6 +246,26 @@ class MainActivity : ComponentActivity() {
         networkToken = ScouterNetworkConfig.regenerateToken(this)
     }
 
+    private fun savePullDownAction(action: PullDownAction) {
+        ScouterPreferences.setPullDownAction(this, action)
+        pullDownAction = action
+    }
+
+    private fun saveMinimizeOnAction(enabled: Boolean) {
+        ScouterPreferences.setMinimizeOnAction(this, enabled)
+        minimizeOnAction = enabled
+    }
+
+    private fun saveSheetControlsSide(side: SheetControlsSide) {
+        ScouterPreferences.setSheetControlsSide(this, side)
+        sheetControlsSide = side
+        startForegroundService(
+            Intent(this, ScouterOverlayService::class.java).apply {
+                action = ScouterOverlayService.ACTION_REFRESH_PREFERENCES
+            },
+        )
+    }
+
     private fun refreshPermissionState() {
         overlayGranted = Settings.canDrawOverlays(this)
         notificationsGranted = Build.VERSION.SDK_INT < 33 ||
@@ -196,110 +274,295 @@ class MainActivity : ComponentActivity() {
             .isIgnoringBatteryOptimizations(packageName)
     }
 
-    private fun showDemo() {
-        sendBroadcast(
-            Intent(ScouterReceiver.ACTION_SHOW).apply {
-                component = ComponentName(this@MainActivity, ScouterReceiver::class.java)
-                putExtra(ScouterReceiver.EXTRA_JSON, DEMO_DOCUMENT)
+    private fun reopenHistory(entry: ScouterHistoryEntry) {
+        startForegroundService(
+            Intent(this, ScouterOverlayService::class.java).apply {
+                action = ScouterReceiver.ACTION_SHOW
+                putExtra(ScouterOverlayService.EXTRA_DOCUMENT, entry.documentJson)
+                putExtra(ScouterOverlayService.EXTRA_ID, entry.documentId)
             },
         )
     }
 
+    private fun clearHistory() {
+        ScouterHistoryStore(this).clear()
+        refreshHistory()
+    }
+
+    private fun refreshHistory() {
+        historyEntries = ScouterHistoryStore(this).entries()
+    }
+
 }
 
+private enum class AppTab(val label: String) {
+    Home("Home"),
+    Settings("Settings"),
+    Permissions("Access"),
+}
+
+private data class HistoryDay(
+    val timestamp: Long,
+    val entries: List<ScouterHistoryEntry>,
+)
+
 @Composable
-private fun ScouterHome(
+private fun ScouterApp(
+    currentTab: AppTab,
+    onTabSelected: (AppTab) -> Unit,
+    history: List<ScouterHistoryEntry>,
     overlayGranted: Boolean,
     networkAddress: String,
     networkToken: String,
+    networkSettings: ScouterNetworkConfig.NetworkSettings,
+    pullDownAction: PullDownAction,
+    minimizeOnAction: Boolean,
+    sheetControlsSide: SheetControlsSide,
+    notificationsGranted: Boolean,
+    batteryExempt: Boolean,
     requestOverlay: () -> Unit,
-    showPermissions: () -> Unit,
-    showSettings: () -> Unit,
-    showDemo: () -> Unit,
+    requestNotifications: () -> Unit,
+    requestBatteryExemption: () -> Unit,
+    openAppSettings: () -> Unit,
+    onSaveNetwork: (Boolean, String, String) -> String?,
+    onRegenerateToken: () -> Unit,
+    onPullDownActionChange: (PullDownAction) -> Unit,
+    onMinimizeOnActionChange: (Boolean) -> Unit,
+    onSheetControlsSideChange: (SheetControlsSide) -> Unit,
+    reopenHistory: (ScouterHistoryEntry) -> Unit,
+    clearHistory: () -> Unit,
 ) {
-    val context = LocalContext.current
     MaterialTheme {
-        Surface(color = Ink, modifier = Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize()) {
-                Radar(Modifier.align(Alignment.TopEnd).size(280.dp))
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 36.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "Scouter",
-                                color = Acid,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Row {
-                                TextButton(
-                                    onClick = showSettings,
-                                    colors = ButtonDefaults.textButtonColors(contentColor = Frost),
-                                ) {
-                                    Text("Settings")
-                                }
-                                TextButton(
-                                    onClick = showPermissions,
-                                    colors = ButtonDefaults.textButtonColors(contentColor = Frost),
-                                ) {
-                                    Text("Permissions")
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(40.dp))
-                        Text(
-                            "Information,\nright on target.",
-                            color = Frost,
-                            fontSize = 43.sp,
-                            lineHeight = 46.sp,
-                            fontWeight = FontWeight.Black,
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        Text(
-                            "Compose native Android overlays from a single JSON intent. No screen templates. No rebuild.",
-                            color = Sage,
-                            fontSize = 16.sp,
-                            lineHeight = 24.sp,
-                            modifier = Modifier.fillMaxWidth(.88f),
-                        )
-                    }
+        Scaffold(
+            containerColor = Ink,
+            bottomBar = {
+                ScouterBottomBar(currentTab, onTabSelected)
+            },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                when (currentTab) {
+                    AppTab.Home -> HomeScreen(
+                        history = history,
+                        reopenHistory = reopenHistory,
+                        clearHistory = clearHistory,
+                    )
+                    AppTab.Settings -> SettingsScreen(
+                        settings = networkSettings,
+                        address = networkAddress,
+                        token = networkToken,
+                        pullDownAction = pullDownAction,
+                        minimizeOnAction = minimizeOnAction,
+                        sheetControlsSide = sheetControlsSide,
+                        onBack = { onTabSelected(AppTab.Home) },
+                        onSaveNetwork = onSaveNetwork,
+                        onRegenerateToken = onRegenerateToken,
+                        onPullDownActionChange = onPullDownActionChange,
+                        onMinimizeOnActionChange = onMinimizeOnActionChange,
+                        onSheetControlsSideChange = onSheetControlsSideChange,
+                    )
+                    AppTab.Permissions -> PermissionsScreen(
+                        overlayGranted = overlayGranted,
+                        notificationsGranted = notificationsGranted,
+                        batteryExempt = batteryExempt,
+                        onBack = { onTabSelected(AppTab.Home) },
+                        requestOverlay = requestOverlay,
+                        requestNotifications = requestNotifications,
+                        requestBatteryExemption = requestBatteryExemption,
+                        openAppSettings = openAppSettings,
+                    )
+                }
+            }
+        }
+    }
+}
 
-                    Column {
-                        StatusCard(overlayGranted)
-                        Spacer(Modifier.height(10.dp))
-                        NetworkCard(networkAddress, networkToken)
-                        Spacer(Modifier.height(14.dp))
-                        Button(
-                            onClick = if (overlayGranted) showDemo else requestOverlay,
-                            modifier = Modifier.fillMaxWidth().height(54.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Acid,
-                                contentColor = Ink,
-                            ),
-                        ) {
-                            Text(
-                                if (overlayGranted) "Launch demo overlay" else "Allow overlay access",
-                                fontWeight = FontWeight.Black,
-                            )
-                        }
+@Composable
+private fun ScouterBottomBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit) {
+    NavigationBar(containerColor = Panel, tonalElevation = 0.dp) {
+        AppTab.entries.forEach { tab ->
+            NavigationBarItem(
+                selected = currentTab == tab,
+                onClick = { onTabSelected(tab) },
+                icon = {
+                    Icon(
+                        imageVector = when (tab) {
+                            AppTab.Home -> Icons.Filled.Home
+                            AppTab.Settings -> Icons.Filled.Settings
+                            AppTab.Permissions -> Icons.Filled.Security
+                        },
+                        contentDescription = null,
+                    )
+                },
+                label = { Text(tab.label) },
+                colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                    selectedIconColor = Ink,
+                    selectedTextColor = Acid,
+                    indicatorColor = Acid,
+                    unselectedIconColor = Sage,
+                    unselectedTextColor = Sage,
+                ),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeScreen(
+    history: List<ScouterHistoryEntry>,
+    reopenHistory: (ScouterHistoryEntry) -> Unit,
+    clearHistory: () -> Unit,
+) {
+    var showClearConfirmation by remember { mutableStateOf(false) }
+    val historyDays = remember(history) {
+        history
+            .groupBy { entry ->
+                Calendar.getInstance().apply {
+                    timeInMillis = entry.receivedAt
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+            }
+            .map { (timestamp, entries) -> HistoryDay(timestamp, entries) }
+            .sortedByDescending(HistoryDay::timestamp)
+    }
+    Box(Modifier.fillMaxSize()) {
+        Radar(Modifier.align(Alignment.TopEnd).size(220.dp))
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 22.dp,
+                top = 28.dp,
+                end = 22.dp,
+                bottom = 28.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Text(
+                    "Scouter Cards",
+                    color = Frost,
+                    fontSize = 34.sp,
+                    lineHeight = 38.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    "Recent cards stay here, ready to reopen.",
+                    color = Sage,
+                    fontSize = 15.sp,
+                )
+                Spacer(Modifier.height(26.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("History", color = Frost, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    if (history.isNotEmpty()) {
                         TextButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Scouter JSON", DEMO_DOCUMENT))
-                            },
-                            modifier = Modifier.fillMaxWidth(),
+                            onClick = { showClearConfirmation = true },
                             colors = ButtonDefaults.textButtonColors(contentColor = Sage),
                         ) {
-                            Text("Copy demo JSON")
+                            Text("Clear")
                         }
+                    }
+                }
+            }
+            if (history.isEmpty()) {
+                item { EmptyHistoryCard() }
+            } else {
+                historyDays.forEach { day ->
+                    stickyHeader(key = "day-${day.timestamp}") {
+                        HistoryDayHeader(day.timestamp)
+                    }
+                    items(day.entries, key = { it.historyId }) { entry ->
+                        HistoryCard(entry, onClick = { reopenHistory(entry) })
+                    }
+                }
+            }
+        }
+    }
+    if (showClearConfirmation) {
+        ClearHistoryDialog(
+            itemCount = history.size,
+            onDismiss = { showClearConfirmation = false },
+            onConfirm = {
+                showClearConfirmation = false
+                clearHistory()
+            },
+        )
+    }
+}
+
+@Composable
+private fun ClearHistoryDialog(
+    itemCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = Panel,
+            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(22.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(Ember.copy(alpha = .12f), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = null,
+                        tint = Ember,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "Clear history?",
+                    color = Frost,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "$itemCount ${if (itemCount == 1) "card" else "cards"} will be removed from this device. Active overlays won’t be closed.",
+                    color = Sage,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.textButtonColors(
+                            containerColor = Ink,
+                            contentColor = Frost,
+                        ),
+                    ) {
+                        Text("Cancel", fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = onConfirm,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Ember,
+                            contentColor = Ink,
+                        ),
+                    ) {
+                        Text("Clear", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -308,13 +571,135 @@ private fun ScouterHome(
 }
 
 @Composable
+private fun HistoryDayHeader(timestamp: Long) {
+    val locale = Locale.getDefault()
+    val date = Date(timestamp)
+    val day = SimpleDateFormat("EEEE d MMMM", locale)
+        .format(date)
+        .replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
+    val year = SimpleDateFormat("yyyy", locale).format(date)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink)
+            .padding(top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Text(
+            day,
+            color = Frost,
+            fontSize = 23.sp,
+            lineHeight = 27.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            year,
+            color = Sage,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(bottom = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun HistoryCard(entry: ScouterHistoryEntry, onClick: () -> Unit) {
+    val accent = runCatching { Color(android.graphics.Color.parseColor(entry.accent)) }.getOrDefault(Acid)
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Panel, RoundedCornerShape(18.dp))
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            entry.iconName?.historyIcon()?.let { icon ->
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(accent.copy(alpha = .12f), RoundedCornerShape(13.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(entry.title, color = Frost, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                entry.summary?.takeIf { it != entry.title }?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, color = Sage, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 2)
+                }
+            }
+        }
+        Text(
+            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(entry.receivedAt)),
+            color = Sage.copy(alpha = .72f),
+            fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.End).padding(top = 5.dp, end = 4.dp),
+        )
+    }
+}
+
+private fun String.historyIcon(): ImageVector? = when (this) {
+    "calendar", "time" -> Icons.Filled.CalendarToday
+    "call" -> Icons.Filled.Call
+    "directions", "navigation" -> Icons.Filled.Directions
+    "home" -> Icons.Filled.Home
+    "info" -> Icons.Filled.Info
+    "link", "open" -> Icons.Filled.Link
+    "list" -> Icons.Filled.List
+    "location" -> Icons.Filled.LocationOn
+    "lock", "unlock" -> Icons.Filled.Lock
+    "message", "notification" -> Icons.Filled.Message
+    "phone" -> Icons.Filled.Phone
+    "play", "pause" -> Icons.Filled.PlayArrow
+    "settings" -> Icons.Filled.Settings
+    "star", "favorite" -> Icons.Filled.Star
+    "task", "check" -> Icons.Filled.TaskAlt
+    "warning" -> Icons.Filled.Warning
+    else -> null
+}
+
+@Composable
+private fun EmptyHistoryCard() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Panel, RoundedCornerShape(18.dp))
+            .padding(20.dp),
+    ) {
+        Text("No cards yet", color = Frost, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(5.dp))
+        Text(
+            "Cards received through intents, REST, or MCP will appear here.",
+            color = Sage,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+        )
+    }
+}
+
+@Composable
 private fun SettingsScreen(
     settings: ScouterNetworkConfig.NetworkSettings,
     address: String,
     token: String,
+    pullDownAction: PullDownAction,
+    minimizeOnAction: Boolean,
+    sheetControlsSide: SheetControlsSide,
     onBack: () -> Unit,
     onSaveNetwork: (Boolean, String, String) -> String?,
     onRegenerateToken: () -> Unit,
+    onPullDownActionChange: (PullDownAction) -> Unit,
+    onMinimizeOnActionChange: (Boolean) -> Unit,
+    onSheetControlsSideChange: (SheetControlsSide) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -323,6 +708,7 @@ private fun SettingsScreen(
     var port by remember(settings) { mutableStateOf(settings.port.toString()) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var confirmTokenReset by remember { mutableStateOf(false) }
+    var tokenVisible by remember { mutableStateOf(false) }
     MaterialTheme {
         Surface(color = Ink, modifier = Modifier.fillMaxSize()) {
             Column(
@@ -331,13 +717,6 @@ private fun SettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 28.dp),
             ) {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Sage),
-                ) {
-                    Text("Back")
-                }
-                Spacer(Modifier.height(18.dp))
                 Text(
                     "Settings",
                     color = Frost,
@@ -431,6 +810,136 @@ private fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Panel, RoundedCornerShape(20.dp))
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Minimize on action",
+                            color = Frost,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Minimize the card after opening navigation, a link, or the dialer.",
+                            color = Sage,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                        )
+                    }
+                    Switch(
+                        checked = minimizeOnAction,
+                        onCheckedChange = onMinimizeOnActionChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Ink,
+                            checkedTrackColor = Acid,
+                            uncheckedThumbColor = Sage,
+                            uncheckedTrackColor = Ink,
+                        ),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Panel, RoundedCornerShape(20.dp))
+                        .padding(18.dp),
+                ) {
+                    Text(
+                        "Control layout",
+                        color = Frost,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "Place the Close action on your preferred side.",
+                        color = Sage,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        SheetControlsSide.entries.forEach { side ->
+                            val selected = side == sheetControlsSide
+                            TextButton(
+                                onClick = { onSheetControlsSideChange(side) },
+                                modifier = Modifier.weight(1f).height(46.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.textButtonColors(
+                                    containerColor = if (selected) Acid else Ink,
+                                    contentColor = if (selected) Ink else Frost,
+                                ),
+                            ) {
+                                Text(
+                                    when (side) {
+                                        SheetControlsSide.Left -> "Left-handed"
+                                        SheetControlsSide.Right -> "Right-handed"
+                                    },
+                                    maxLines = 1,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Panel, RoundedCornerShape(20.dp))
+                        .padding(18.dp),
+                ) {
+                    Text(
+                        "Pull-down gesture",
+                        color = Frost,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "Choose what happens when the grey sheet handle is dragged down.",
+                        color = Sage,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PullDownAction.entries.forEach { action ->
+                            val selected = action == pullDownAction
+                            TextButton(
+                                onClick = { onPullDownActionChange(action) },
+                                modifier = Modifier.weight(1f).height(46.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = ButtonDefaults.textButtonColors(
+                                    containerColor = if (selected) Acid else Ink,
+                                    contentColor = if (selected) Ink else Frost,
+                                ),
+                            ) {
+                                Text(
+                                    when (action) {
+                                        PullDownAction.Minimize -> "Minimize"
+                                        PullDownAction.Close -> "Close"
+                                    },
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -439,7 +948,33 @@ private fun SettingsScreen(
                 ) {
                     Text("Access token", color = Frost, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(5.dp))
-                    Text("${token.take(8)}…${token.takeLast(4)}", color = Sage, fontSize = 14.sp)
+                    Text(
+                        if (tokenVisible) token else "${token.take(8)}…${token.takeLast(4)}",
+                        color = if (tokenVisible) Frost else Sage,
+                        fontSize = 14.sp,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Row {
+                        TextButton(
+                            onClick = { tokenVisible = !tokenVisible },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Acid),
+                        ) {
+                            Text(if (tokenVisible) "Hide token" else "Show token")
+                        }
+                        TextButton(
+                            onClick = {
+                                val clipboard =
+                                    context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    ClipData.newPlainText("Scouter access token", token),
+                                )
+                                feedback = "Access token copied"
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Acid),
+                        ) {
+                            Text("Copy token")
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Regenerating the token immediately disconnects every configured desktop client.",
@@ -452,6 +987,7 @@ private fun SettingsScreen(
                             if (confirmTokenReset) {
                                 onRegenerateToken()
                                 confirmTokenReset = false
+                                tokenVisible = false
                                 feedback = "Access token regenerated"
                             } else {
                                 confirmTokenReset = true
@@ -542,13 +1078,6 @@ private fun PermissionsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 28.dp),
             ) {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Sage),
-                ) {
-                    Text("Back")
-                }
-                Spacer(Modifier.height(18.dp))
                 Text(
                     "Permissions",
                     color = Frost,
@@ -753,68 +1282,5 @@ private val Ink = Color(0xFF07100D)
 private val Panel = Color(0xFF121D18)
 private val Frost = Color(0xFFF1F8F3)
 private val Sage = Color(0xFF9EB0A5)
-private val Acid = Color(0xFFC9FF3F)
+private val Acid = Color(0xFF71C56E)
 private val Ember = Color(0xFFFF765E)
-
-private const val DEMO_DOCUMENT = """
-{
-  "version": 1,
-  "id": "demo-target",
-  "title": "Live scan",
-  "theme": {
-    "background": "#0B120F",
-    "surface": "#152019",
-    "text": "#F4F8F5",
-    "muted": "#93A49A",
-    "accent": "#C9FF3F",
-    "cornerRadius": 30
-  },
-  "presentation": {
-    "dismissible": true,
-    "minimizable": true,
-    "showHandle": true,
-    "maxHeight": 0.82
-  },
-  "content": {
-    "type": "column",
-    "gap": 14,
-    "children": [
-      {"type": "badge", "label": "Target acquired", "tone": "accent"},
-      {"type": "text", "value": "Unknown signature", "variant": "title"},
-      {"type": "text", "value": "18,004", "variant": "display", "color": "#C9FF3F"},
-      {"type": "progress", "label": "Signal confidence", "value": 0.87, "showValue": true},
-      {
-        "type": "card",
-        "tone": "surface",
-        "child": {
-          "type": "text",
-          "value": "Fast-moving energy source detected 240 m north-east.",
-          "variant": "body"
-        }
-      },
-      {
-        "type": "row",
-        "children": [
-          {
-            "type": "button",
-            "id": "dismiss_target",
-            "label": "Dismiss",
-            "variant": "secondary",
-            "action": {"type": "close"}
-          },
-          {
-            "type": "button",
-            "id": "track_target",
-            "label": "Track target",
-            "action": {
-              "type": "broadcast",
-              "action": "app.scouter.demo.TRACK",
-              "closeAfter": true
-            }
-          }
-        ]
-      }
-    ]
-  }
-}
-"""

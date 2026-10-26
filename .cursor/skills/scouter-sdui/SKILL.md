@@ -11,7 +11,7 @@ Create content-specific native interfaces from JSON. Do not create permanent scr
 
 1. Decide whether to create a new sheet or replace one.
    - Reuse a stable `scouter_id` to replace and raise an existing sheet.
-   - Use a new ID only for an independent sheet that should stack.
+   - Use a new ID only for an independent sheet that should appear in the horizontal card switcher.
 2. Compose a version 1 document from supported components.
 3. Keep a visible close path. Use `presentation.dismissible: true` by default.
 4. Send an implicit broadcast with action `app.scouter.SHOW`.
@@ -35,11 +35,11 @@ Scouter accepts these implicit broadcast actions:
 
 | Action | Extra | Result |
 | --- | --- | --- |
-| `app.scouter.SHOW` | `scouter_json` required, `scouter_id` optional | Show, stack, or replace |
+| `app.scouter.SHOW` | `scouter_json` required, `scouter_id` optional | Show, select, or replace |
 | `app.scouter.CLOSE` | `scouter_id` required | Close one visible or queued view |
 | `app.scouter.CLOSE_ALL` | none | Close and clear everything |
 
-`scouter_json` is the complete JSON document serialized as a string. `scouter_id` overrides the document's `id`. Reusing an ID replaces and raises that sheet; a distinct ID creates an independently stackable sheet.
+`scouter_json` is the complete JSON document serialized as a string. `scouter_id` overrides the document's `id`. Reusing an ID replaces and selects that sheet; a distinct ID adds another active card to the horizontal switcher. Only one sheet is rendered at a time.
 
 ## Show or replace
 
@@ -62,6 +62,12 @@ adb shell am broadcast -a app.scouter.SHOW \
 When Android is locked, Scouter stores this document and posts a local notification. Sending the same ID replaces the queued document. Tapping the notification restores only the bottom sheet over the current app, without opening Scouter's main activity; Android handles authentication when required.
 
 For network delivery, send the same JSON to `POST http://<phone>:8765/show` with `Authorization: Bearer <token>` and optional `X-Scouter-Id`. Use the address and token displayed by Scouter. A wildcard `0.0.0.0` bind listens on every interface and advertises a detected Tailscale `100.64.0.0/10` address before Wi-Fi. On the emulator, run `adb forward tcp:8765 tcp:8765` and target `http://127.0.0.1:8765`.
+
+Scouter's foreground overlay service is detached from the main activity. Swiping away the activity does not close active sheets. Their JSON is persisted and restored after process death, application update, or reboot. Android force-stop cannot be bypassed; after a force-stop, the user must open Scouter once before receivers and services may run again.
+
+Every accepted `SHOW` is also stored in the app's persistent Home history. Tapping a history card reopens the exact JSON with its stable ID without adding a duplicate history event. Users can clear this history independently from visible and queued overlays.
+
+Checklist state is persistent. A `checklist` uses its document ID, list ID, and item ID as the state key. `link_list`, `address_list`, `phone_list`, and `action_list` can also display persistent checkboxes by setting `"checkable": true`; these lists then require a stable `id`, and each item can use `"checked": true` as its initial value. Reopening the same document from history restores the user's latest checked state.
 
 ## MCP transport
 
@@ -162,6 +168,7 @@ For minimized or lock-screen delivery, set a concise `notification.title`, `noti
 For visible UI, `titleIcon` and the `icon` field on text, badge, button, hold/slide controls, links, addresses and phones accept `null`, an icon name, or `{name, position, color, size, spacing}`. Names: `add`, `back`, `calendar`, `call`, `check`, `close`, `delete`, `directions`, `edit`, `email`, `favorite`, `home`, `info`, `link`, `list`, `location`, `lock`, `menu`, `message`, `more`, `notification`, `open`, `pause`, `person`, `phone`, `play`, `search`, `settings`, `share`, `star`, `task`, `time`, `unlock`, `warning`.
 `presentation.radius` accepts one number or independent `topStart`, `topEnd`, `bottomEnd`, and `bottomStart` values from 0 to 160 dp.
 Set `presentation.minimizable` to `true` to expose a Minimize control. It stores the current JSON as a local notification; tapping it restores the same view and stable ID directly over the current app without opening Scouter's main activity. Notification permission is required.
+The user can also drag the grey sheet handle downward to minimize. The gesture is intentionally limited to the handle touch target so scrolling and interactions inside the document are unaffected.
 
 ## Components
 
@@ -214,7 +221,7 @@ Every component accepts a `style` object:
   "background":"#17221C",
   "opacity":0.95,
   "radius":{"topStart":18,"topEnd":18,"bottomEnd":8,"bottomStart":8},
-  "border":{"width":1,"color":"#C9FF3F"}
+  "border":{"width":1,"color":"#71C56E"}
 }
 ```
 
@@ -228,7 +235,7 @@ Close:
 {"type":"close"}
 ```
 
-System navigation chooser:
+Google Maps navigation, with a system-app fallback:
 
 ```json
 {"type":"navigate","address":"12 rue de Charonne, Paris","chooserTitle":"Open directions"}
@@ -267,7 +274,7 @@ Scouter adds these extras to callback broadcasts:
 
 Checklist changes use `event=change` with `value=true|false`. Hold completion sends its duration as `value`; slide completion sends `value=1`. Prefer a package-targeted callback so unrelated applications cannot receive it.
 
-`navigate` opens an Android `geo:` chooser. `dial` opens the dialer but never places a call automatically. `open_url` accepts HTTP(S) only.
+`navigate` opens Google Maps directly when installed, then falls back to an Android `geo:` chooser. After a successful launch, Scouter minimizes the originating sheet into its local notification; set `closeAfter: true` to close it instead. `dial` opens the dialer but never places a call automatically. `open_url` accepts HTTP(S) only.
 
 ## Composition rules
 
@@ -289,7 +296,7 @@ Checklist changes use `event=change` with `value=true|false`. Hold completion se
 
 After sending:
 
-1. Check that the intended sheet is visible, correctly stacked or replaced, and not clipped.
+1. Check that the intended sheet is visible, selected or replaced correctly, and not clipped.
 2. Check title, icon, essential content, primary action, pressed state, and close/minimize controls.
 3. Exercise callbacks, hold duration, slide threshold, vibration, navigation, or dialer when present.
 4. For minimization, verify notification title, message, icon, and direct restoration over the current app.

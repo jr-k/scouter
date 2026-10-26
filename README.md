@@ -18,7 +18,9 @@
 
 Scouter is a small server-driven UI renderer for Android. Send one JSON document through an intent, HTTP, or MCP; Scouter turns it into a native bottom sheet with no predefined screen or template.
 
-Sheets slide up from the bottom, stack when their IDs differ, and update in place when an ID is reused. They can also be minimized into local notifications and restored without opening the main activity.
+Sheets slide up from the bottom and update in place when an ID is reused. When several are active, Scouter displays one sheet at a time with a separate horizontal card switcher above it. They can also be minimized into local notifications and restored without opening the main activity.
+
+The companion app keeps a persistent history of received cards. Its bottom navigation separates the card library, server settings, and Android access controls. Tapping a history item reopens that exact document without creating a duplicate history entry.
 
 ## What it handles
 
@@ -26,7 +28,7 @@ Sheets slide up from the bottom, stack when their IDs differ, and update in plac
 - Checklists, links, addresses, phone numbers, maps, videos, and controlled web content
 - Press-and-hold and slide actions with configurable vibration
 - Per-view colors, spacing, typography, borders, opacity, and four independent corner radii
-- Stable-ID replacement and multiple stacked overlays
+- Stable-ID replacement and navigation between multiple active overlays
 - Lock-screen queueing through local notifications
 - Android intents, authenticated REST, and embedded MCP
 
@@ -206,18 +208,25 @@ Interaction:
 - `hold_button`
 - `slide_action`
 
-Actions can close the sheet, open a trusted HTTP(S) URL, open navigation, open the dialer, or send a package-targeted callback broadcast.
+Actions can close the sheet, open a trusted HTTP(S) URL, open navigation, open the dialer, or send a package-targeted callback broadcast. Navigation opens Google Maps directly when available, falls back to the system chooser, and automatically minimizes the sheet into its notification.
 
 Every component accepts a `style` object for dimensions, weight, padding, margin, background, opacity, radius, and border. Interactive elements require stable semantic IDs.
 
+Lists (`link_list`, `address_list`, `phone_list`, and `action_list`) accept `checkable: true`; in that mode the list itself needs a stable `id`. Each item may define its initial `checked` value. Scouter persists subsequent checkbox changes by document, list, and item ID, including after reopening a card from Home history. Regular `checklist` state is persisted the same way.
+
 ## Overlay lifecycle
 
-- A new ID creates another independently stacked sheet.
-- Reusing an ID replaces the current or queued document and raises it.
+- A new ID adds another card to the horizontal overlay switcher.
+- Reusing an ID replaces the current or queued document and selects it.
+- Closing or swiping away Scouter's activity does not stop the detached foreground overlay service.
+- Active sheets are persisted and restored after a process restart, application update, or device reboot.
 - Minimizing stores the document and creates a configurable local notification.
 - When Android is locked, incoming views are queued instead of forcing an overlay.
-- Tapping the notification restores only the requested sheet over the current app.
+- Tapping a card notification restores only the requested sheet over the current app; it never opens the companion activity.
+- A minimizable sheet can also be pulled down from its grey handle to create the notification.
 - `CLOSE` removes both visible and queued views.
+
+Android force-stop is the one exception: after **Force stop**, the operating system blocks every receiver and service until Scouter is opened manually again. Persisted sheets are restored at that point.
 
 ## Safety
 

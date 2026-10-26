@@ -30,6 +30,9 @@ class ScouterReceiver : BroadcastReceiver() {
                 }.onFailure {
                     Log.e(TAG, "Rejected Scouter document: ${it.message}", it)
                 }.getOrNull() ?: return
+                if (!intent.getBooleanExtra(EXTRA_SKIP_HISTORY, false)) {
+                    ScouterHistoryStore(context).record(document, raw!!)
+                }
 
                 if (isLocked(context)) {
                     store.put(document.id, raw!!)
@@ -81,6 +84,7 @@ class ScouterReceiver : BroadcastReceiver() {
         const val ACTION_OPEN_PENDING = "app.scouter.OPEN_PENDING"
         const val EXTRA_JSON = "scouter_json"
         const val EXTRA_ID = "scouter_id"
+        const val EXTRA_SKIP_HISTORY = "scouter_skip_history"
         private const val PENDING_CHANNEL_ID = "scouter_pending"
         private const val TAG = "ScouterReceiver"
 
@@ -116,35 +120,57 @@ class ScouterReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             val notification = Notification.Builder(context, PENDING_CHANNEL_ID)
-                .setSmallIcon(notificationIcon(document.notification.icon))
+                .setSmallIcon(R.drawable.ic_scouter_notification)
                 .setContentTitle(document.notificationTitle())
                 .setContentText(
                     document.notificationMessage() ?: context.getString(R.string.pending_notification_text),
                 )
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true)
+                .setGroup(PENDING_GROUP_KEY)
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setVisibility(Notification.VISIBILITY_PRIVATE)
                 .build()
             manager.notify(notificationId(id), notification)
+            updateGroupSummary(context, manager)
             return true
         }
 
         fun cancelNotification(context: Context, id: String) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.cancel(notificationId(id))
+            updateGroupSummary(context, manager)
+        }
+
+        private fun updateGroupSummary(context: Context, manager: NotificationManager) {
+            val count = PendingDocumentStore(context).ids().size
+            if (count < 2) {
+                manager.cancel(PENDING_GROUP_NOTIFICATION_ID)
+                return
+            }
+            manager.notify(
+                PENDING_GROUP_NOTIFICATION_ID,
+                Notification.Builder(context, PENDING_CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_scouter_notification)
+                    .setContentTitle(context.getString(R.string.pending_group_title))
+                    .setContentText(
+                        context.resources.getQuantityString(
+                            R.plurals.pending_group_text,
+                            count,
+                            count,
+                        ),
+                    )
+                    .setGroup(PENDING_GROUP_KEY)
+                    .setGroupSummary(true)
+                    .setOnlyAlertOnce(true)
+                    .setVisibility(Notification.VISIBILITY_PRIVATE)
+                    .build(),
+            )
         }
 
         private fun notificationId(id: String): Int = 0x53000000 xor id.hashCode()
+        private const val PENDING_GROUP_KEY = "app.scouter.PENDING_CARDS"
+        private const val PENDING_GROUP_NOTIFICATION_ID = 0x5300FFFF
 
-        private fun notificationIcon(icon: String): Int = when (icon) {
-            "info" -> android.R.drawable.ic_dialog_info
-            "warning" -> android.R.drawable.ic_dialog_alert
-            "message" -> android.R.drawable.ic_dialog_email
-            "navigation" -> android.R.drawable.ic_menu_mylocation
-            "phone" -> android.R.drawable.ic_menu_call
-            "task" -> android.R.drawable.checkbox_on_background
-            else -> R.drawable.ic_scouter
-        }
     }
 }

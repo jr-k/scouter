@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import android.webkit.WebView
 import android.widget.MediaController
 import android.widget.VideoView
@@ -20,6 +21,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,8 +30,11 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -41,12 +46,17 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,6 +73,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -70,6 +81,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,6 +113,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import app.scouter.model.ActionItem
+import app.scouter.ChecklistStateStore
+import app.scouter.SheetControlsSide
 import app.scouter.model.Corners
 import app.scouter.model.IconSpec
 import app.scouter.model.ScouterAction
@@ -153,29 +167,284 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+private val LocalDocumentId = staticCompositionLocalOf { "" }
+private const val VIDEO_TAG = "ScouterVideo"
+
+@Composable
+fun ScouterOverlayHost(
+    documents: List<ScouterDocument>,
+    selectedId: String?,
+    visible: Boolean,
+    controlsSide: SheetControlsSide,
+    onSelect: (String) -> Unit,
+    onClose: (String) -> Unit,
+    onMinimize: (String) -> Unit,
+    onHandleDismiss: (String) -> Boolean,
+    onMinimizeAll: () -> Unit,
+    onCloseAll: () -> Unit,
+    onAction: (String, String, ScouterAction, String?, String) -> Unit,
+) {
+    if (documents.isEmpty()) return
+    val selectedIndex = documents.indexOfFirst { it.id == selectedId }
+        .takeIf { it >= 0 }
+        ?: documents.lastIndex
+    val pagerState = rememberPagerState(initialPage = selectedIndex) { documents.size }
+    val currentDocument = documents.getOrNull(pagerState.currentPage) ?: documents[selectedIndex]
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    LaunchedEffect(selectedId, documents.map(ScouterDocument::id)) {
+        val target = documents.indexOfFirst { it.id == selectedId }
+        if (target >= 0 && target != pagerState.currentPage) {
+            pagerState.scrollToPage(target)
+        }
+    }
+    LaunchedEffect(pagerState.settledPage, documents.map(ScouterDocument::id)) {
+        documents.getOrNull(pagerState.settledPage)?.id
+            ?.takeIf { it != selectedId }
+            ?.let(onSelect)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = screenHeight),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            Modifier
+                .weight(1f, fill = false)
+                .fillMaxWidth(),
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(Alignment.Bottom),
+                key = { documents[it].id },
+                verticalAlignment = Alignment.Bottom,
+                userScrollEnabled = documents.size > 1,
+            ) { page ->
+                val document = documents[page]
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .weight(1f, fill = false)
+                            .padding(
+                                horizontal = document.presentation.horizontalMargin.dp.coerceAtLeast(8.dp),
+                            ),
+                    ) {
+                        ScouterSheet(
+                            document = document,
+                            depth = 0,
+                            visible = visible,
+                            animateEntrance = documents.size == 1,
+                            onHandleDismiss = { onHandleDismiss(document.id) },
+                            onAction = { elementId, action, value, event ->
+                                onAction(document.id, elementId, action, value, event)
+                            },
+                        )
+                    }
+                    SheetActions(
+                        document = document,
+                        side = controlsSide,
+                        onMinimize = { onMinimize(document.id) },
+                        onClose = { onClose(document.id) },
+                        onMinimizeAll = onMinimizeAll,
+                        onCloseAll = onCloseAll,
+                    )
+                }
+            }
+            if (pagerState.canScrollBackward) {
+                CarouselEdgeGlow(
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    color = color(currentDocument.theme.accent),
+                    fromStart = true,
+                )
+            }
+            if (pagerState.canScrollForward) {
+                CarouselEdgeGlow(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    color = color(currentDocument.theme.accent),
+                    fromStart = false,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CarouselEdgeGlow(
+    modifier: Modifier,
+    color: Color,
+    fromStart: Boolean,
+) {
+    val colors = if (fromStart) {
+        listOf(color.copy(alpha = .58f), color.copy(alpha = .18f), Color.Transparent)
+    } else {
+        listOf(Color.Transparent, color.copy(alpha = .18f), color.copy(alpha = .58f))
+    }
+    Box(
+        modifier = modifier
+            .fillMaxHeight(.72f)
+            .width(9.dp)
+            .background(Brush.horizontalGradient(colors)),
+    )
+}
+
+@Composable
+private fun SheetActions(
+    document: ScouterDocument,
+    side: SheetControlsSide,
+    onMinimize: () -> Unit,
+    onClose: () -> Unit,
+    onMinimizeAll: () -> Unit,
+    onCloseAll: () -> Unit,
+) {
+    if (!document.presentation.minimizable && !document.presentation.dismissible) return
+    val theme = document.theme
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = document.presentation.horizontalMargin.dp.coerceAtLeast(8.dp))
+            .height(50.dp)
+            .clip(shape)
+            .background(color(theme.surface))
+            .border(1.dp, color(theme.accent).copy(alpha = .14f), shape),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val closeFirst = side == SheetControlsSide.Left
+        if (closeFirst && document.presentation.dismissible) {
+            SheetActionSegment("Close", onClose, onCloseAll, color(theme.text), Modifier.weight(1f))
+        }
+        if (closeFirst && document.presentation.dismissible && document.presentation.minimizable) {
+            SheetActionDivider(color(theme.accent))
+        }
+        if (document.presentation.minimizable) {
+            SheetActionSegment(
+                "Minimize",
+                onMinimize,
+                onMinimizeAll,
+                color(theme.muted),
+                Modifier.weight(1f),
+            )
+        }
+        if (!closeFirst && document.presentation.dismissible && document.presentation.minimizable) {
+            SheetActionDivider(color(theme.accent))
+        }
+        if (!closeFirst && document.presentation.dismissible) {
+            SheetActionSegment("Close", onClose, onCloseAll, color(theme.text), Modifier.weight(1f))
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SheetActionSegment(
+    label: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    contentColor: Color,
+    modifier: Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = contentColor,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun SheetActionDivider(accent: Color) {
+    Box(
+        Modifier
+            .width(1.dp)
+            .fillMaxHeight(.58f)
+            .background(accent.copy(alpha = .2f)),
+    )
+}
+
 @Composable
 fun ScouterSheet(
     document: ScouterDocument,
     depth: Int,
     visible: Boolean,
-    onClose: () -> Unit,
-    onMinimize: () -> Unit,
+    animateEntrance: Boolean = true,
+    onHandleDismiss: () -> Boolean,
     onAction: (String, ScouterAction, String?, String) -> Unit,
 ) {
     val theme = document.theme
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val density = LocalDensity.current
     val stackScale = (1f - depth * .025f).coerceAtLeast(.9f)
+    val minimizeThresholdPx = with(density) { 64.dp.toPx() }
+    var handleDragOffset by remember(document.id) { mutableFloatStateOf(0f) }
+    var handleDragging by remember(document.id) { mutableStateOf(false) }
+    val renderedHandleOffset by animateFloatAsState(
+        targetValue = handleDragOffset,
+        animationSpec = if (handleDragging) {
+            snap()
+        } else {
+            spring(dampingRatio = .82f, stiffness = Spring.StiffnessHigh)
+        },
+        label = "sheetHandleOffset",
+    )
+    val handleGesture = if (
+        document.presentation.showHandle &&
+        (document.presentation.minimizable || document.presentation.dismissible)
+    ) {
+        Modifier.pointerInput(document.id) {
+            detectVerticalDragGestures(
+                onDragStart = { handleDragging = true },
+                onVerticalDrag = { change, amount ->
+                    change.consume()
+                    handleDragOffset = (handleDragOffset + amount).coerceAtLeast(0f)
+                },
+                onDragCancel = {
+                    handleDragging = false
+                    handleDragOffset = 0f
+                },
+                onDragEnd = {
+                    if (handleDragOffset >= minimizeThresholdPx) {
+                        if (!onHandleDismiss()) {
+                            handleDragging = false
+                            handleDragOffset = 0f
+                        }
+                    } else {
+                        handleDragging = false
+                        handleDragOffset = 0f
+                    }
+                },
+            )
+        }
+    } else {
+        Modifier
+    }
     val sheetShape = document.presentation.radius?.shapeOr(RoundedCornerShape(0.dp))
         ?: RoundedCornerShape(
             topStart = theme.cornerRadius.dp,
             topEnd = theme.cornerRadius.dp,
-            bottomStart = 5.dp,
-            bottomEnd = 5.dp,
+            bottomStart = theme.cornerRadius.dp,
+            bottomEnd = theme.cornerRadius.dp,
         )
-    val visibilityState = remember { MutableTransitionState(false) }
+    val visibilityState = remember(document.id) {
+        MutableTransitionState(!animateEntrance && visible)
+    }
     LaunchedEffect(visible) {
         visibilityState.targetState = visible
     }
+    CompositionLocalProvider(LocalDocumentId provides document.id) {
     AnimatedVisibility(
         visibleState = visibilityState,
         enter = slideInVertically(
@@ -185,7 +454,7 @@ fun ScouterSheet(
             ),
             initialOffsetY = { fullHeight -> fullHeight },
         ) + fadeIn(tween(160)),
-        exit = slideOutVertically(tween(240)) { it } + fadeOut(tween(160)),
+        exit = slideOutVertically(tween(170)) { it } + fadeOut(tween(120)),
     ) {
         Column(
             modifier = Modifier
@@ -193,6 +462,7 @@ fun ScouterSheet(
                 .graphicsLayer {
                     scaleX = stackScale
                     alpha = (1f - depth * .13f).coerceAtLeast(.55f)
+                    translationY = renderedHandleOffset
                 }
                 .heightIn(max = screenHeight * document.presentation.maxHeight)
                 .clip(sheetShape)
@@ -205,7 +475,7 @@ fun ScouterSheet(
                 .padding(horizontal = 20.dp)
                 .padding(top = 10.dp, bottom = 20.dp),
         ) {
-            SheetChrome(document, onClose, onMinimize)
+            SheetChrome(document, handleGesture)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -215,13 +485,13 @@ fun ScouterSheet(
             }
         }
     }
+    }
 }
 
 @Composable
 private fun SheetChrome(
     document: ScouterDocument,
-    onClose: () -> Unit,
-    onMinimize: () -> Unit,
+    handleGesture: Modifier,
 ) {
     val theme = document.theme
     Box(Modifier.fillMaxWidth().height(if (document.title == null) 36.dp else 52.dp)) {
@@ -229,10 +499,17 @@ private fun SheetChrome(
             Box(
                 Modifier
                     .align(Alignment.TopCenter)
-                    .size(width = 42.dp, height = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(color(theme.muted).copy(alpha = .42f)),
-            )
+                    .size(width = 88.dp, height = 24.dp)
+                    .then(handleGesture),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = 42.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(color(theme.muted).copy(alpha = .42f)),
+                )
+            }
         }
         document.title?.let {
             IconLabel(
@@ -243,26 +520,6 @@ private fun SheetChrome(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.align(Alignment.CenterStart),
             )
-        }
-        if (document.presentation.minimizable || document.presentation.dismissible) {
-            Row(modifier = Modifier.align(Alignment.CenterEnd)) {
-                if (document.presentation.minimizable) {
-                    TextButton(
-                        onClick = onMinimize,
-                        colors = ButtonDefaults.textButtonColors(contentColor = color(theme.muted)),
-                    ) {
-                        Text("Minimize", fontSize = (13 * theme.fontScale).sp)
-                    }
-                }
-                if (document.presentation.dismissible) {
-                    TextButton(
-                        onClick = onClose,
-                        colors = ButtonDefaults.textButtonColors(contentColor = color(theme.text)),
-                    ) {
-                        Text("Close", fontSize = (13 * theme.fontScale).sp)
-                    }
-                }
-            }
         }
     }
 }
@@ -361,6 +618,9 @@ private fun ColumnScope.RenderNode(
                     theme = theme,
                     modifier = Modifier.fillMaxWidth(),
                     onAction = onAction,
+                    checkable = node.checkable,
+                    listId = node.id,
+                    initialChecked = link.checked,
                 )
             }
         }
@@ -371,6 +631,7 @@ private fun ColumnScope.RenderNode(
         )
         is UiNode.Video -> NodeVideo(
             node,
+            theme,
             nodeModifier.then(if (node.style.height == null) Modifier.height(node.height.dp) else Modifier),
         )
         is UiNode.Web -> NodeWeb(
@@ -508,7 +769,7 @@ private fun NodeButton(
                 containerColor = quietContainer,
                 contentColor = node.textColor?.let(::color) ?: color(theme.text),
             ),
-        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.SemiBold) }
+        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.SemiBold, singleLine = true) }
         "ghost" -> TextButton(
             onClick = click,
             enabled = node.enabled,
@@ -518,7 +779,7 @@ private fun NodeButton(
                 containerColor = quietContainer,
                 contentColor = node.textColor?.let(::color) ?: color(theme.accent),
             ),
-        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.SemiBold) }
+        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.SemiBold, singleLine = true) }
         "danger" -> Button(
             onClick = click,
             enabled = node.enabled,
@@ -529,7 +790,7 @@ private fun NodeButton(
                 containerColor = dangerContainer,
                 contentColor = node.textColor?.let(::color) ?: Color.Black,
             ),
-        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.Bold) }
+        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.Bold, singleLine = true) }
         else -> Button(
             onClick = click,
             enabled = node.enabled,
@@ -540,7 +801,7 @@ private fun NodeButton(
                 containerColor = primaryContainer,
                 contentColor = node.textColor?.let(::color) ?: Color.Black,
             ),
-        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.Bold) }
+        ) { IconLabel(node.label, node.icon, fontWeight = FontWeight.Bold, singleLine = true) }
     }
 }
 
@@ -605,6 +866,7 @@ private fun NodeHoldButton(
             icon = node.icon,
             color = node.textColor?.let(::color) ?: color(theme.text),
             fontWeight = FontWeight.SemiBold,
+            singleLine = true,
         )
     }
 }
@@ -624,11 +886,19 @@ private fun NodeSlideAction(
     val thumbWidthPx = with(density) { thumbSlotWidth.toPx() }
     var widthPx by remember(node.id) { mutableFloatStateOf(0f) }
     var dragOffset by remember(node.id) { mutableFloatStateOf(0f) }
+    var dragging by remember(node.id) { mutableStateOf(false) }
     var completed by remember(node.id) { mutableStateOf(false) }
     val maxOffset = (widthPx - thumbWidthPx).coerceAtLeast(0f)
     val renderedOffset by animateFloatAsState(
         targetValue = dragOffset.coerceIn(0f, maxOffset),
-        animationSpec = tween(120),
+        animationSpec = if (dragging) {
+            snap()
+        } else {
+            spring(
+                dampingRatio = .88f,
+                stiffness = Spring.StiffnessHigh,
+            )
+        },
         label = "slideOffset",
     )
     val shape = node.style.radius.shapeOr(CircleShape)
@@ -648,12 +918,22 @@ private fun NodeSlideAction(
             .pointerInput(node.id, node.enabled, maxOffset, node.threshold) {
                 if (node.enabled) {
                     detectHorizontalDragGestures(
+                        onDragStart = { position ->
+                            if (!completed) {
+                                dragging = true
+                                dragOffset = (position.x - thumbWidthPx / 2f).coerceIn(0f, maxOffset)
+                            }
+                        },
                         onHorizontalDrag = { change, amount ->
                             change.consume()
                             if (!completed) dragOffset = (dragOffset + amount).coerceIn(0f, maxOffset)
                         },
-                        onDragCancel = { dragOffset = 0f },
+                        onDragCancel = {
+                            dragging = false
+                            dragOffset = 0f
+                        },
                         onDragEnd = {
+                            dragging = false
                             if (maxOffset > 0f && dragOffset / maxOffset >= node.threshold) {
                                 completed = true
                                 dragOffset = maxOffset
@@ -700,6 +980,7 @@ private fun NodeSlideAction(
                     icon = node.icon,
                     color = node.textColor?.let(::color) ?: color(theme.text),
                     fontWeight = FontWeight.SemiBold,
+                    singleLine = true,
                 )
             } else {
                 ShimmerIconLabel(
@@ -777,13 +1058,19 @@ private fun NodeChecklist(
     modifier: Modifier,
     onAction: (String, ScouterAction, String?, String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val documentId = LocalDocumentId.current
+    val stateStore = remember(context) { ChecklistStateStore(context) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         node.items.forEach { item ->
             key(item.id) {
-                var isChecked by remember(node.id, item.id, item.checked) { mutableStateOf(item.checked) }
+                var isChecked by remember(documentId, node.id, item.id, item.checked) {
+                    mutableStateOf(stateStore.checked(documentId, node.id, item.id, item.checked))
+                }
                 val toggle = {
                     if (item.enabled) {
                         isChecked = !isChecked
+                        stateStore.setChecked(documentId, node.id, item.id, isChecked)
                         onAction(item.id, node.action, isChecked.toString(), "change")
                     }
                 }
@@ -825,7 +1112,22 @@ private fun NodeLink(
     theme: ScouterTheme,
     modifier: Modifier,
     onAction: (String, ScouterAction, String?, String) -> Unit,
+    checkable: Boolean = false,
+    listId: String? = null,
+    initialChecked: Boolean = false,
 ) {
+    val context = LocalContext.current
+    val documentId = LocalDocumentId.current
+    val stateStore = remember(context) { ChecklistStateStore(context) }
+    var isChecked by remember(documentId, listId, node.id, initialChecked) {
+        mutableStateOf(
+            if (checkable) {
+                stateStore.checked(documentId, requireNotNull(listId), node.id, initialChecked)
+            } else {
+                false
+            },
+        )
+    }
     TextButton(
         onClick = { onAction(node.id, ScouterAction.OpenUrl(node.url, false), null, "click") },
         modifier = modifier,
@@ -840,9 +1142,27 @@ private fun NodeLink(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (checkable) {
+                Checkbox(
+                    checked = isChecked,
+                    onCheckedChange = {
+                        isChecked = it
+                        stateStore.setChecked(documentId, requireNotNull(listId), node.id, it)
+                    },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = color(theme.accent),
+                        checkmarkColor = Color.Black,
+                        uncheckedColor = color(theme.muted),
+                    ),
+                )
+            }
             node.icon?.let { UiIcon(it, color(theme.accent)) }
             Column(Modifier.weight(1f)) {
-                Text(node.label, fontWeight = FontWeight.SemiBold)
+                Text(
+                    node.label,
+                    fontWeight = FontWeight.SemiBold,
+                    textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None,
+                )
                 node.description?.let {
                     Text(it, color = color(theme.muted), fontSize = 12.sp, lineHeight = 17.sp)
                 }
@@ -862,7 +1182,7 @@ private fun NodeActionList(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         node.items.forEach { item ->
             key(item.id) {
-                ActionListItem(item, theme, onAction)
+                ActionListItem(item, theme, onAction, node.checkable, node.id)
             }
         }
     }
@@ -873,7 +1193,21 @@ private fun ActionListItem(
     item: ActionItem,
     theme: ScouterTheme,
     onAction: (String, ScouterAction, String?, String) -> Unit,
+    checkable: Boolean,
+    listId: String?,
 ) {
+    val context = LocalContext.current
+    val documentId = LocalDocumentId.current
+    val stateStore = remember(context) { ChecklistStateStore(context) }
+    var isChecked by remember(documentId, listId, item.id, item.checked) {
+        mutableStateOf(
+            if (checkable) {
+                stateStore.checked(documentId, requireNotNull(listId), item.id, item.checked)
+            } else {
+                false
+            },
+        )
+    }
     TextButton(
         onClick = { onAction(item.id, item.action, item.detail, "click") },
         modifier = Modifier.fillMaxWidth(),
@@ -888,9 +1222,27 @@ private fun ActionListItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (checkable) {
+                Checkbox(
+                    checked = isChecked,
+                    onCheckedChange = {
+                        isChecked = it
+                        stateStore.setChecked(documentId, requireNotNull(listId), item.id, it)
+                    },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = color(theme.accent),
+                        checkmarkColor = Color.Black,
+                        uncheckedColor = color(theme.muted),
+                    ),
+                )
+            }
             item.icon?.let { UiIcon(it, color(theme.accent)) }
             Column(Modifier.weight(1f)) {
-                Text(item.label, fontWeight = FontWeight.SemiBold)
+                Text(
+                    item.label,
+                    fontWeight = FontWeight.SemiBold,
+                    textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None,
+                )
                 item.description?.let {
                     Text(it, color = color(theme.muted), fontSize = 12.sp, lineHeight = 17.sp)
                 }
@@ -958,30 +1310,71 @@ private fun configureGoogleMap(map: GoogleMap, node: UiNode.Map) {
 }
 
 @Composable
-private fun NodeVideo(node: UiNode.Video, modifier: Modifier) {
-    AndroidView(
-        factory = { context ->
-            VideoView(context).apply {
-                tag = node.url
-                if (node.controls) setMediaController(MediaController(context).also { it.setAnchorView(this) })
-                setVideoURI(Uri.parse(node.url))
-                setOnPreparedListener { player ->
-                    player.isLooping = false
-                    if (node.autoplay) start() else seekTo(1)
-                }
-            }
-        },
-        update = {
-            if (it.tag != node.url) {
-                it.tag = node.url
-                it.setVideoURI(Uri.parse(node.url))
-            }
-        },
-        onRelease = { it.stopPlayback() },
+private fun NodeVideo(node: UiNode.Video, theme: ScouterTheme, modifier: Modifier) {
+    var playbackError by remember(node.id, node.url) { mutableStateOf(false) }
+    Box(
         modifier = modifier
             .clip(node.style.radius.shapeOr(RoundedCornerShape(18.dp)))
             .background(Color.Black),
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!playbackError) {
+            AndroidView(
+                factory = { context ->
+                    VideoView(context).apply {
+                        tag = node.url
+                        setOnErrorListener { _, what, extra ->
+                            Log.e(
+                                VIDEO_TAG,
+                                "Video playback failed for ${node.url}: what=$what extra=$extra",
+                            )
+                            playbackError = true
+                            true
+                        }
+                        setOnPreparedListener { player ->
+                            player.isLooping = false
+                            if (node.autoplay) start() else seekTo(1)
+                        }
+                        if (node.controls) {
+                            setMediaController(MediaController(context).also { it.setAnchorView(this) })
+                        }
+                        setVideoURI(Uri.parse(node.url))
+                    }
+                },
+                update = {
+                    if (it.tag != node.url) {
+                        it.tag = node.url
+                        it.setVideoURI(Uri.parse(node.url))
+                    }
+                },
+                onRelease = { it.stopPlayback() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = color(theme.muted),
+                )
+                Text(
+                    "Video unavailable",
+                    color = color(theme.text),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "The media source could not be played.",
+                    color = color(theme.muted),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -1093,6 +1486,9 @@ private fun ShimmerIconLabel(
                 brush = brush,
                 fontWeight = FontWeight.SemiBold,
             ),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
         if (icon?.position == "end") {
             Spacer(Modifier.width(icon.spacing.dp))
@@ -1109,6 +1505,7 @@ private fun IconLabel(
     color: Color? = null,
     fontSize: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
     fontWeight: FontWeight? = null,
+    singleLine: Boolean = false,
 ) {
     val resolvedColor = color ?: LocalContentColor.current
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -1116,7 +1513,15 @@ private fun IconLabel(
             UiIcon(icon, resolvedColor)
             Spacer(Modifier.width(icon.spacing.dp))
         }
-        Text(text = text, color = resolvedColor, fontSize = fontSize, fontWeight = fontWeight)
+        Text(
+            text = text,
+            color = resolvedColor,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            maxLines = if (singleLine) 1 else Int.MAX_VALUE,
+            softWrap = !singleLine,
+            overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip,
+        )
         if (icon?.position == "end") {
             Spacer(Modifier.width(icon.spacing.dp))
             UiIcon(icon, resolvedColor)

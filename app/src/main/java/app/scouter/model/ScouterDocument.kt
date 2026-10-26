@@ -33,9 +33,9 @@ data class ScouterTheme(
     val surface: String = "#18211D",
     val text: String = "#F3F8F5",
     val muted: String = "#A8B5AD",
-    val accent: String = "#C8FF3D",
+    val accent: String = "#71C56E",
     val danger: String = "#FF6B5F",
-    val cornerRadius: Float = 28f,
+    val cornerRadius: Float = 20f,
     val fontScale: Float = 1f,
 )
 
@@ -232,12 +232,14 @@ sealed interface UiNode {
         override val id: String?,
         override val style: UiStyle,
         val links: List<LinkItem>,
+        val checkable: Boolean,
     ) : UiNode
 
     data class ActionList(
         override val id: String?,
         override val style: UiStyle,
         val items: List<ActionItem>,
+        val checkable: Boolean,
     ) : UiNode
 
     data class Map(
@@ -287,6 +289,7 @@ data class LinkItem(
     val url: String,
     val description: String?,
     val icon: IconSpec?,
+    val checked: Boolean,
 )
 
 data class ActionItem(
@@ -297,6 +300,7 @@ data class ActionItem(
     val buttonLabel: String,
     val icon: IconSpec?,
     val action: ScouterAction,
+    val checked: Boolean,
 )
 
 fun ScouterDocument.notificationTitle(): String =
@@ -541,8 +545,11 @@ object ScouterParser {
                 "linklist", "link_list" -> {
                     val links = value.optJSONArray("links") ?: JSONArray()
                     require(links.length() in 1..30) { "Link list requires 1–30 links" }
+                    val checkable = value.optBoolean("checkable", false)
                     UiNode.LinkList(
-                        id = id,
+                        id = id.also {
+                            require(!checkable || it != null) { "A checkable link list requires a stable id" }
+                        },
                         style = style,
                         links = (0 until links.length()).map { index ->
                             val link = links.getJSONObject(index)
@@ -552,35 +559,54 @@ object ScouterParser {
                                 url = link.httpUrl("url"),
                                 description = link.optString("description").takeIf(String::isNotBlank)?.take(500),
                                 icon = parseIcon(link.opt("icon")),
+                                checked = link.optBoolean("checked", false),
                             )
                         },
+                        checkable = checkable,
                     )
                 }
                 "address" -> UiNode.ActionList(
                     id = id,
                     style = style,
                     items = listOf(parseAddressItem(value, id ?: error("An address requires a stable id"))),
+                    checkable = false,
                 )
-                "addresslist", "address_list" -> UiNode.ActionList(
-                    id = id,
-                    style = style,
-                    items = value.actionItems("addresses", 30, ::parseAddressItem),
-                )
+                "addresslist", "address_list" -> {
+                    val checkable = value.optBoolean("checkable", false)
+                    UiNode.ActionList(
+                        id = id.also {
+                            require(!checkable || it != null) { "A checkable address list requires a stable id" }
+                        },
+                        style = style,
+                        items = value.actionItems("addresses", 30, ::parseAddressItem),
+                        checkable = checkable,
+                    )
+                }
                 "phone" -> UiNode.ActionList(
                     id = id,
                     style = style,
                     items = listOf(parsePhoneItem(value, id ?: error("A phone requires a stable id"))),
+                    checkable = false,
                 )
-                "phonelist", "phone_list" -> UiNode.ActionList(
-                    id = id,
-                    style = style,
-                    items = value.actionItems("phones", 30, ::parsePhoneItem),
-                )
+                "phonelist", "phone_list" -> {
+                    val checkable = value.optBoolean("checkable", false)
+                    UiNode.ActionList(
+                        id = id.also {
+                            require(!checkable || it != null) { "A checkable phone list requires a stable id" }
+                        },
+                        style = style,
+                        items = value.actionItems("phones", 30, ::parsePhoneItem),
+                        checkable = checkable,
+                    )
+                }
                 "actionlist", "action_list" -> {
                     val items = value.optJSONArray("items") ?: JSONArray()
                     require(items.length() in 1..40) { "Action list requires 1–40 items" }
+                    val checkable = value.optBoolean("checkable", false)
                     UiNode.ActionList(
-                        id = id,
+                        id = id.also {
+                            require(!checkable || it != null) { "A checkable action list requires a stable id" }
+                        },
                         style = style,
                         items = (0 until items.length()).map { index ->
                             val item = items.getJSONObject(index)
@@ -592,6 +618,7 @@ object ScouterParser {
                                 else -> error("Unknown action list item type: ${item.optString("type")}")
                             }
                         },
+                        checkable = checkable,
                     )
                 }
                 "map" -> UiNode.Map(
@@ -658,9 +685,9 @@ object ScouterParser {
                 surface = themeJson.color("surface", "#18211D"),
                 text = themeJson.color("text", "#F3F8F5"),
                 muted = themeJson.color("muted", "#A8B5AD"),
-                accent = themeJson.color("accent", "#C8FF3D"),
+                accent = themeJson.color("accent", "#71C56E"),
                 danger = themeJson.color("danger", "#FF6B5F"),
-                cornerRadius = themeJson.float("cornerRadius", 28f, 12f, 48f),
+                cornerRadius = themeJson.float("cornerRadius", 20f, 12f, 48f),
                 fontScale = themeJson.float("fontScale", 1f, .8f, 1.5f),
             ),
             presentation = Presentation(
@@ -835,6 +862,7 @@ object ScouterParser {
                 chooserTitle = value.optString("chooserTitle").takeIf(String::isNotBlank)?.take(80),
                 closeAfter = value.optBoolean("closeAfter", false),
             ),
+            checked = value.optBoolean("checked", false),
         )
     }
 
@@ -848,6 +876,7 @@ object ScouterParser {
             buttonLabel = value.optString("buttonLabel", "Dial").take(40),
             icon = parseIcon(value.opt("icon")),
             action = ScouterAction.Dial(number, value.optBoolean("closeAfter", false)),
+            checked = value.optBoolean("checked", false),
         )
     }
 
@@ -861,6 +890,7 @@ object ScouterParser {
             buttonLabel = value.optString("buttonLabel", "Open").take(40),
             icon = parseIcon(value.opt("icon")),
             action = ScouterAction.OpenUrl(url, value.optBoolean("closeAfter", false)),
+            checked = value.optBoolean("checked", false),
         )
     }
 
