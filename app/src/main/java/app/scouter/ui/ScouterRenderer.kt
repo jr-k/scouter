@@ -11,9 +11,14 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -43,6 +48,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -68,9 +74,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -82,6 +92,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextDecoration
@@ -99,6 +110,7 @@ import app.scouter.model.UiStyle
 import app.scouter.model.UiNode
 import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -607,7 +619,9 @@ private fun NodeSlideAction(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
-    val thumbWidthPx = with(density) { 52.dp.toPx() }
+    val trackHeight = 64.dp
+    val thumbSlotWidth = 64.dp
+    val thumbWidthPx = with(density) { thumbSlotWidth.toPx() }
     var widthPx by remember(node.id) { mutableFloatStateOf(0f) }
     var dragOffset by remember(node.id) { mutableFloatStateOf(0f) }
     var completed by remember(node.id) { mutableStateOf(false) }
@@ -617,14 +631,15 @@ private fun NodeSlideAction(
         animationSpec = tween(120),
         label = "slideOffset",
     )
-    val shape = node.style.radius.shapeOr(RoundedCornerShape(28.dp))
+    val shape = node.style.radius.shapeOr(CircleShape)
     val accent = node.color?.let(::color) ?: color(theme.accent)
     val track = node.trackColor?.let(::color) ?: color(theme.surface)
     Box(
         modifier = modifier
-            .then(if (node.style.height == null) Modifier.height(56.dp) else Modifier)
+            .then(if (node.style.height == null) Modifier.height(trackHeight) else Modifier)
             .clip(shape)
             .background(track)
+            .border(1.dp, accent.copy(alpha = .24f), shape)
             .graphicsLayer { alpha = if (node.enabled) 1f else .45f }
             .onSizeChanged {
                 widthPx = it.width.toFloat()
@@ -665,26 +680,57 @@ private fun NodeSlideAction(
                     if (widthPx == 0f) 0f
                     else ((renderedOffset + thumbWidthPx) / widthPx).coerceIn(0f, 1f),
                 )
-                .height(56.dp)
-                .background(accent.copy(alpha = .2f)),
+                .height(trackHeight)
+                .clip(
+                    RoundedCornerShape(
+                        topEnd = trackHeight / 2,
+                        bottomEnd = trackHeight / 2,
+                    ),
+                )
+                .background(accent.copy(alpha = .16f)),
         )
-        IconLabel(
-            text = if (completed) node.completedLabel ?: node.label else node.label,
-            icon = node.icon,
-            color = node.textColor?.let(::color) ?: color(theme.text),
-            fontWeight = FontWeight.SemiBold,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (completed) {
+                IconLabel(
+                    text = node.completedLabel ?: node.label,
+                    icon = node.icon,
+                    color = node.textColor?.let(::color) ?: color(theme.text),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            } else {
+                ShimmerIconLabel(
+                    text = node.label,
+                    icon = node.icon,
+                    color = node.textColor?.let(::color) ?: color(theme.text),
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .offset { IntOffset(renderedOffset.roundToInt(), 0) }
-                .padding(4.dp)
-                .size(48.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(accent),
+                .size(thumbSlotWidth),
             contentAlignment = Alignment.Center,
         ) {
-            Text("→", color = Color.Black, fontWeight = FontWeight.Bold)
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .shadow(6.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                    contentDescription = null,
+                    tint = if (accent.luminance() > .5f) Color.Black else Color.White,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
         }
     }
 }
@@ -1003,6 +1049,56 @@ private fun String.boxAlignment(): Alignment = when (lowercase()) {
     "bottom", "bottomcenter", "bottom_center" -> Alignment.BottomCenter
     "bottomend", "bottom_end" -> Alignment.BottomEnd
     else -> Alignment.Center
+}
+
+@Composable
+private fun ShimmerIconLabel(
+    text: String,
+    icon: IconSpec?,
+    color: Color,
+) {
+    var widthPx by remember { mutableFloatStateOf(1f) }
+    val transition = rememberInfiniteTransition(label = "slideLabelShimmer")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_650, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "slideLabelShimmerProgress",
+    )
+    val center = widthPx * (-.35f + progress * 1.7f)
+    val halfBand = widthPx * .22f
+    val brush = Brush.linearGradient(
+        colors = listOf(
+            color.copy(alpha = .52f),
+            color,
+            color.copy(alpha = .52f),
+        ),
+        start = Offset(center - halfBand, 0f),
+        end = Offset(center + halfBand, 0f),
+    )
+    Row(
+        modifier = Modifier.onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon?.position == "start") {
+            UiIcon(icon, color)
+            Spacer(Modifier.width(icon.spacing.dp))
+        }
+        Text(
+            text = text,
+            style = TextStyle(
+                brush = brush,
+                fontWeight = FontWeight.SemiBold,
+            ),
+        )
+        if (icon?.position == "end") {
+            Spacer(Modifier.width(icon.spacing.dp))
+            UiIcon(icon, color)
+        }
+    }
 }
 
 @Composable
