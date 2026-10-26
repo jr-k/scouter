@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Scouter</string>
+    <string name="overlay_channel_name">Scouter overlays</string>
+    <string name="overlay_notification_title">Scouter is ready</string>
+    <string name="overlay_notification_text">Rendering dynamic interface overlays</string>
+    <string name="pending_channel_name">Pending Scouter views</string>
+    <string name="pending_notification_title">Scouter view ready</string>
+    <string name="pending_notification_text">Unlock and tap to display</string>
+    <string name="minimized_notification_text">Tap to reopen this view</string>
+</resources>

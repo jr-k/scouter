@@ -1,0 +1,722 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scouter.app/schema/v1",
+  "title": "Scouter document",
+  "type": "object",
+  "required": ["version", "id", "content"],
+  "properties": {
+    "version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+    "title": {"type": "string", "maxLength": 120},
+    "titleIcon": {"$ref": "#/$defs/icon"},
+    "notification": {"$ref": "#/$defs/notification"},
+    "theme": {"$ref": "#/$defs/theme"},
+    "presentation": {"$ref": "#/$defs/presentation"},
+    "content": {"$ref": "#/$defs/node"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+    },
+    "icon": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "enum": [
+            "add", "back", "calendar", "call", "check", "close", "delete", "directions",
+            "edit", "email", "favorite", "home", "info", "link", "list", "location",
+            "lock", "menu", "message", "more", "notification", "open", "pause", "person",
+            "phone", "play", "search", "settings", "share", "star", "task", "time",
+            "unlock", "warning"
+          ]
+        },
+        {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "enum": [
+                "add", "back", "calendar", "call", "check", "close", "delete", "directions",
+                "edit", "email", "favorite", "home", "info", "link", "list", "location",
+                "lock", "menu", "message", "more", "notification", "open", "pause", "person",
+                "phone", "play", "search", "settings", "share", "star", "task", "time",
+                "unlock", "warning"
+              ]
+            },
+            "position": {"enum": ["start", "end"]},
+            "color": {"$ref": "#/$defs/color"},
+            "size": {"type": "number", "minimum": 8, "maximum": 48},
+            "spacing": {"type": "number", "minimum": 0, "maximum": 24}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "notification": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string", "maxLength": 120},
+        "message": {"type": "string", "maxLength": 240},
+        "icon": {
+          "enum": ["scouter", "info", "warning", "message", "navigation", "phone", "task"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "background": {"$ref": "#/$defs/color"},
+        "surface": {"$ref": "#/$defs/color"},
+        "text": {"$ref": "#/$defs/color"},
+        "muted": {"$ref": "#/$defs/color"},
+        "accent": {"$ref": "#/$defs/color"},
+        "danger": {"$ref": "#/$defs/color"},
+        "cornerRadius": {"type": "number", "minimum": 12, "maximum": 48},
+        "fontScale": {"type": "number", "minimum": 0.8, "maximum": 1.5}
+      },
+      "additionalProperties": false
+    },
+    "presentation": {
+      "type": "object",
+      "properties": {
+        "dismissible": {"type": "boolean"},
+        "minimizable": {"type": "boolean"},
+        "showHandle": {"type": "boolean"},
+        "maxHeight": {"type": "number", "minimum": 0.25, "maximum": 0.96},
+        "horizontalMargin": {"type": "number", "minimum": 0, "maximum": 40},
+        "stackOffset": {"type": "number", "minimum": 0, "maximum": 32},
+        "radius": {"$ref": "#/$defs/radius"}
+      },
+      "additionalProperties": false
+    },
+    "insets": {
+      "oneOf": [
+        {"type": "number", "minimum": 0, "maximum": 240},
+        {
+          "type": "object",
+          "properties": {
+            "horizontal": {"type": "number", "minimum": 0, "maximum": 240},
+            "vertical": {"type": "number", "minimum": 0, "maximum": 240},
+            "start": {"type": "number", "minimum": 0, "maximum": 240},
+            "top": {"type": "number", "minimum": 0, "maximum": 240},
+            "end": {"type": "number", "minimum": 0, "maximum": 240},
+            "bottom": {"type": "number", "minimum": 0, "maximum": 240}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "radius": {
+      "oneOf": [
+        {"type": "number", "minimum": 0, "maximum": 160},
+        {
+          "type": "object",
+          "properties": {
+            "all": {"type": "number", "minimum": 0, "maximum": 160},
+            "topStart": {"type": "number", "minimum": 0, "maximum": 160},
+            "topEnd": {"type": "number", "minimum": 0, "maximum": 160},
+            "bottomEnd": {"type": "number", "minimum": 0, "maximum": 160},
+            "bottomStart": {"type": "number", "minimum": 0, "maximum": 160}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "vibrateSequence": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {"type": "integer", "minimum": 0, "maximum": 5000},
+      "description": "Android waveform durations in milliseconds: delay, vibrate, pause, vibrate, and so on. Maximum total duration: 15000 ms."
+    },
+    "style": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "oneOf": [
+            {"enum": ["fill", "wrap"]},
+            {"type": "number", "minimum": 0, "maximum": 2000}
+          ]
+        },
+        "height": {"type": "number", "minimum": 0, "maximum": 2000},
+        "minHeight": {"type": "number", "minimum": 0, "maximum": 2000},
+        "maxHeight": {"type": "number", "minimum": 0, "maximum": 2000},
+        "weight": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
+        "aspectRatio": {"type": "number", "minimum": 0.1, "maximum": 10},
+        "padding": {"$ref": "#/$defs/insets"},
+        "margin": {"$ref": "#/$defs/insets"},
+        "background": {"$ref": "#/$defs/color"},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        "radius": {"$ref": "#/$defs/radius"},
+        "border": {
+          "type": "object",
+          "properties": {
+            "width": {"type": "number", "minimum": 0, "maximum": 24},
+            "color": {"$ref": "#/$defs/color"}
+          },
+          "additionalProperties": false
+        },
+        "borderWidth": {"type": "number", "minimum": 0, "maximum": 24},
+        "borderColor": {"$ref": "#/$defs/color"}
+      },
+      "additionalProperties": false
+    },
+    "base": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"}
+      }
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "close"}},
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "url"],
+          "properties": {
+            "type": {"enum": ["open_url", "openUrl"]},
+            "url": {"type": "string", "pattern": "^https?://"},
+            "closeAfter": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "action"],
+          "properties": {
+            "type": {"const": "broadcast"},
+            "action": {"type": "string", "minLength": 1},
+            "package": {"type": "string"},
+            "extras": {
+              "type": "object",
+              "additionalProperties": {"type": ["string", "number", "boolean"]}
+            },
+            "closeAfter": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {"const": "navigate"},
+            "address": {"type": "string", "minLength": 1, "maxLength": 500},
+            "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+            "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+            "chooserTitle": {"type": "string", "maxLength": 80},
+            "closeAfter": {"type": "boolean"}
+          },
+          "anyOf": [
+            {"required": ["address"]},
+            {"required": ["latitude", "longitude"]}
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["type", "phoneNumber"],
+          "properties": {
+            "type": {"const": "dial"},
+            "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
+            "closeAfter": {"type": "boolean"}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "node": {
+      "oneOf": [
+        {"$ref": "#/$defs/column"},
+        {"$ref": "#/$defs/row"},
+        {"$ref": "#/$defs/grid"},
+        {"$ref": "#/$defs/box"},
+        {"$ref": "#/$defs/card"},
+        {"$ref": "#/$defs/text"},
+        {"$ref": "#/$defs/button"},
+        {"$ref": "#/$defs/holdButton"},
+        {"$ref": "#/$defs/slideAction"},
+        {"$ref": "#/$defs/badge"},
+        {"$ref": "#/$defs/progress"},
+        {"$ref": "#/$defs/image"},
+        {"$ref": "#/$defs/checklist"},
+        {"$ref": "#/$defs/link"},
+        {"$ref": "#/$defs/linkList"},
+        {"$ref": "#/$defs/address"},
+        {"$ref": "#/$defs/addressList"},
+        {"$ref": "#/$defs/phone"},
+        {"$ref": "#/$defs/phoneList"},
+        {"$ref": "#/$defs/actionList"},
+        {"$ref": "#/$defs/map"},
+        {"$ref": "#/$defs/video"},
+        {"$ref": "#/$defs/web"},
+        {"$ref": "#/$defs/divider"},
+        {"$ref": "#/$defs/spacer"}
+      ]
+    },
+    "containerProperties": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "gap": {"type": "number", "minimum": 0, "maximum": 64},
+        "align": {"type": "string"},
+        "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
+      }
+    },
+    "column": {
+      "allOf": [
+        {"$ref": "#/$defs/containerProperties"},
+        {"type": "object", "required": ["type", "children"], "properties": {"type": {"const": "column"}}}
+      ]
+    },
+    "row": {
+      "allOf": [
+        {"$ref": "#/$defs/containerProperties"},
+        {"type": "object", "required": ["type", "children"], "properties": {"type": {"const": "row"}}}
+      ]
+    },
+    "grid": {
+      "type": "object",
+      "required": ["type", "columns", "children"],
+      "properties": {
+        "type": {"const": "grid"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "columns": {"type": "integer", "minimum": 1, "maximum": 6},
+        "gap": {"type": "number", "minimum": 0, "maximum": 64},
+        "horizontalGap": {"type": "number", "minimum": 0, "maximum": 64},
+        "verticalGap": {"type": "number", "minimum": 0, "maximum": 64},
+        "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
+      }
+    },
+    "box": {
+      "type": "object",
+      "required": ["type", "child"],
+      "properties": {
+        "type": {"const": "box"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "align": {"type": "string"},
+        "child": {"$ref": "#/$defs/node"}
+      }
+    },
+    "card": {
+      "type": "object",
+      "required": ["type", "child"],
+      "properties": {
+        "type": {"const": "card"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "tone": {"enum": ["accent", "danger", "surface", "background"]},
+        "padding": {"type": "number", "minimum": 0, "maximum": 48},
+        "child": {"$ref": "#/$defs/node"}
+      }
+    },
+    "text": {
+      "type": "object",
+      "required": ["type", "value"],
+      "properties": {
+        "type": {"const": "text"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "value": {"type": "string", "maxLength": 8000},
+        "variant": {"enum": ["display", "title", "subtitle", "body", "caption", "mono"]},
+        "color": {"$ref": "#/$defs/color"},
+        "fontColor": {"$ref": "#/$defs/color"},
+        "fontSize": {"type": "number", "minimum": 8, "maximum": 96},
+        "fontWeight": {"type": ["string", "number"]},
+        "lineHeight": {"type": "number", "minimum": 8, "maximum": 120},
+        "letterSpacing": {"type": "number", "minimum": -8, "maximum": 32},
+        "fontFamily": {"enum": ["default", "serif", "mono", "monospace", "cursive"]},
+        "italic": {"type": "boolean"},
+        "icon": {"$ref": "#/$defs/icon"},
+        "align": {"enum": ["start", "center", "end", "left", "right"]},
+        "maxLines": {"type": "integer", "minimum": 1, "maximum": 100}
+      }
+    },
+    "button": {
+      "type": "object",
+      "required": ["type", "id", "label"],
+      "properties": {
+        "type": {"const": "button"},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 120},
+        "variant": {"enum": ["primary", "secondary", "ghost", "danger"]},
+        "color": {"$ref": "#/$defs/color"},
+        "pressedColor": {"$ref": "#/$defs/color"},
+        "textColor": {"$ref": "#/$defs/color"},
+        "pressedScale": {"type": "number", "minimum": 0.9, "maximum": 1},
+        "enabled": {"type": "boolean"},
+        "icon": {"$ref": "#/$defs/icon"},
+        "action": {"$ref": "#/$defs/action"}
+      }
+    },
+    "holdButton": {
+      "type": "object",
+      "required": ["type", "id", "label"],
+      "properties": {
+        "type": {"enum": ["hold_button", "holdButton"]},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 120},
+        "completedLabel": {"type": "string", "maxLength": 120},
+        "durationMs": {"type": "integer", "minimum": 250, "maximum": 15000},
+        "color": {"$ref": "#/$defs/color"},
+        "trackColor": {"$ref": "#/$defs/color"},
+        "textColor": {"$ref": "#/$defs/color"},
+        "enabled": {"type": "boolean"},
+        "icon": {"$ref": "#/$defs/icon"},
+        "vibrateSequence": {"$ref": "#/$defs/vibrateSequence"},
+        "action": {"$ref": "#/$defs/action"}
+      }
+    },
+    "slideAction": {
+      "type": "object",
+      "required": ["type", "id", "label"],
+      "properties": {
+        "type": {"enum": ["slide_action", "slide_to_action", "slideAction"]},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 120},
+        "completedLabel": {"type": "string", "maxLength": 120},
+        "threshold": {"type": "number", "minimum": 0.5, "maximum": 1},
+        "color": {"$ref": "#/$defs/color"},
+        "trackColor": {"$ref": "#/$defs/color"},
+        "textColor": {"$ref": "#/$defs/color"},
+        "enabled": {"type": "boolean"},
+        "icon": {"$ref": "#/$defs/icon"},
+        "vibrateSequence": {"$ref": "#/$defs/vibrateSequence"},
+        "action": {"$ref": "#/$defs/action"}
+      }
+    },
+    "badge": {
+      "type": "object",
+      "required": ["type", "label"],
+      "properties": {
+        "type": {"const": "badge"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 80},
+        "tone": {"enum": ["accent", "danger", "surface", "background"]},
+        "icon": {"$ref": "#/$defs/icon"}
+      }
+    },
+    "progress": {
+      "type": "object",
+      "required": ["type", "value"],
+      "properties": {
+        "type": {"const": "progress"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "value": {"type": "number", "minimum": 0, "maximum": 1},
+        "label": {"type": "string"},
+        "showValue": {"type": "boolean"},
+        "color": {"$ref": "#/$defs/color"},
+        "trackColor": {"$ref": "#/$defs/color"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {"const": "image"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "url": {"type": "string", "pattern": "^https?://"},
+        "description": {"type": "string"},
+        "height": {"type": "number", "minimum": 48, "maximum": 480},
+        "cornerRadius": {"type": "number", "minimum": 0, "maximum": 64},
+        "contentScale": {"enum": ["crop", "fit", "inside", "fillBounds", "fill_bounds"]}
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "required": ["type", "id", "items"],
+      "properties": {
+        "type": {"const": "checklist"},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+              "label": {"type": "string", "maxLength": 240},
+              "checked": {"type": "boolean"},
+              "enabled": {"type": "boolean"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "action": {"$ref": "#/$defs/action"}
+      }
+    },
+    "link": {
+      "type": "object",
+      "required": ["type", "id", "label", "url"],
+      "properties": {
+        "type": {"const": "link"},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 240},
+        "url": {"type": "string", "pattern": "^https?://"},
+        "description": {"type": "string", "maxLength": 500},
+        "icon": {"$ref": "#/$defs/icon"}
+      }
+    },
+    "linkList": {
+      "type": "object",
+      "required": ["type", "links"],
+      "properties": {
+        "type": {"enum": ["linkList", "link_list"]},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "links": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "url"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "label": {"type": "string", "maxLength": 240},
+              "url": {"type": "string", "pattern": "^https?://"},
+              "description": {"type": "string", "maxLength": 500},
+              "icon": {"$ref": "#/$defs/icon"}
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    "address": {
+      "type": "object",
+      "required": ["type", "id", "address"],
+      "properties": {
+        "type": {"const": "address"},
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 240},
+        "address": {"type": "string", "minLength": 1, "maxLength": 500},
+        "description": {"type": "string", "maxLength": 500},
+        "icon": {"$ref": "#/$defs/icon"},
+        "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+        "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+        "buttonLabel": {"type": "string", "maxLength": 40},
+        "chooserTitle": {"type": "string", "maxLength": 80},
+        "closeAfter": {"type": "boolean"}
+      }
+    },
+    "addressList": {
+      "type": "object",
+      "required": ["type", "addresses"],
+      "properties": {
+        "type": {"enum": ["addressList", "address_list"]},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "addresses": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "required": ["id", "address"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+              "label": {"type": "string", "maxLength": 240},
+              "address": {"type": "string", "minLength": 1, "maxLength": 500},
+              "description": {"type": "string", "maxLength": 500},
+              "icon": {"$ref": "#/$defs/icon"},
+              "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+              "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+              "buttonLabel": {"type": "string", "maxLength": 40},
+              "chooserTitle": {"type": "string", "maxLength": 80},
+              "closeAfter": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "phone": {
+      "type": "object",
+      "required": ["type", "id", "phoneNumber"],
+      "properties": {
+        "type": {"const": "phone"},
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+        "style": {"$ref": "#/$defs/style"},
+        "label": {"type": "string", "maxLength": 240},
+        "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
+        "description": {"type": "string", "maxLength": 500},
+        "icon": {"$ref": "#/$defs/icon"},
+        "buttonLabel": {"type": "string", "maxLength": 40},
+        "closeAfter": {"type": "boolean"}
+      }
+    },
+    "phoneList": {
+      "type": "object",
+      "required": ["type", "phones"],
+      "properties": {
+        "type": {"enum": ["phoneList", "phone_list"]},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "phones": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "required": ["id", "phoneNumber"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+              "label": {"type": "string", "maxLength": 240},
+              "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
+              "description": {"type": "string", "maxLength": 500},
+              "icon": {"$ref": "#/$defs/icon"},
+              "buttonLabel": {"type": "string", "maxLength": 40},
+              "closeAfter": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "actionList": {
+      "type": "object",
+      "required": ["type", "items"],
+      "properties": {
+        "type": {"enum": ["actionList", "action_list"]},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["type", "id", "address"],
+                "properties": {
+                  "type": {"const": "address"},
+                  "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+                  "label": {"type": "string", "maxLength": 240},
+                  "address": {"type": "string", "minLength": 1, "maxLength": 500},
+                  "description": {"type": "string", "maxLength": 500},
+                  "icon": {"$ref": "#/$defs/icon"},
+                  "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+                  "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+                  "buttonLabel": {"type": "string", "maxLength": 40},
+                  "chooserTitle": {"type": "string", "maxLength": 80},
+                  "closeAfter": {"type": "boolean"}
+                }
+              },
+              {
+                "type": "object",
+                "required": ["type", "id", "phoneNumber"],
+                "properties": {
+                  "type": {"const": "phone"},
+                  "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+                  "label": {"type": "string", "maxLength": 240},
+                  "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
+                  "description": {"type": "string", "maxLength": 500},
+                  "icon": {"$ref": "#/$defs/icon"},
+                  "buttonLabel": {"type": "string", "maxLength": 40},
+                  "closeAfter": {"type": "boolean"}
+                }
+              },
+              {
+                "type": "object",
+                "required": ["type", "id", "label", "url"],
+                "properties": {
+                  "type": {"const": "link"},
+                  "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+                  "label": {"type": "string", "maxLength": 240},
+                  "url": {"type": "string", "pattern": "^https?://"},
+                  "description": {"type": "string", "maxLength": 500},
+                  "icon": {"$ref": "#/$defs/icon"},
+                  "buttonLabel": {"type": "string", "maxLength": 40},
+                  "closeAfter": {"type": "boolean"}
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "map": {
+      "type": "object",
+      "required": ["type", "latitude", "longitude"],
+      "properties": {
+        "type": {"const": "map"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+        "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+        "zoom": {"type": "integer", "minimum": 1, "maximum": 19},
+        "markerLabel": {"type": "string", "maxLength": 120},
+        "height": {"type": "number", "minimum": 120, "maximum": 520},
+        "mapType": {"enum": ["normal", "satellite", "terrain", "hybrid"]},
+        "gestures": {"type": "boolean"},
+        "controls": {"type": "boolean"}
+      }
+    },
+    "video": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": {"const": "video"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "url": {"type": "string", "pattern": "^https?://"},
+        "autoplay": {"type": "boolean"},
+        "controls": {"type": "boolean"},
+        "height": {"type": "number", "minimum": 120, "maximum": 520}
+      }
+    },
+    "web": {
+      "type": "object",
+      "required": ["type", "html"],
+      "properties": {
+        "type": {"const": "web"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "html": {"type": "string", "maxLength": 65536},
+        "javaScriptEnabled": {"type": "boolean"},
+        "height": {"type": "number", "minimum": 80, "maximum": 600}
+      }
+    },
+    "divider": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "divider"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "color": {"$ref": "#/$defs/color"}
+      }
+    },
+    "spacer": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "spacer"},
+        "id": {"type": "string"},
+        "style": {"$ref": "#/$defs/style"},
+        "height": {"type": "number", "minimum": 0, "maximum": 240}
+      }
+    }
+  }
+}
