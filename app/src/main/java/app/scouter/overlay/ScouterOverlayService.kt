@@ -33,6 +33,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import app.scouter.ActiveDocumentStore
+import app.scouter.OutsideTapAction
 import app.scouter.PendingDocumentStore
 import app.scouter.PullDownAction
 import app.scouter.R
@@ -42,6 +43,7 @@ import app.scouter.SheetControlsSide
 import app.scouter.model.ScouterAction
 import app.scouter.model.ScouterDocument
 import app.scouter.model.ScouterParser
+import app.scouter.model.mapsUrl
 import app.scouter.network.ScouterNetworkServer
 import app.scouter.ui.ScouterOverlayHost
 import java.util.concurrent.Executors
@@ -54,6 +56,8 @@ class ScouterOverlayService : Service() {
     private val selectedId = mutableStateOf<String?>(null)
     private val sheetVisible = mutableStateOf(true)
     private val sheetControlsSide = mutableStateOf(SheetControlsSide.Right)
+    private val pullDownAction = mutableStateOf(PullDownAction.Minimize)
+    private val outsideTapAction = mutableStateOf(OutsideTapAction.Minimize)
     private var hostView: ComposeView? = null
     private var hostOwner: OverlayLifecycleOwner? = null
     private val networkExecutor = Executors.newSingleThreadExecutor()
@@ -65,7 +69,7 @@ class ScouterOverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         networkServer = ScouterNetworkServer(this)
         activeStore = ActiveDocumentStore(this)
-        sheetControlsSide.value = ScouterPreferences.sheetControlsSide(this)
+        refreshPreferences()
         startForeground(NOTIFICATION_ID, notification())
         networkExecutor.execute { networkServer.start() }
         restoreActiveDocuments()
@@ -80,10 +84,15 @@ class ScouterOverlayService : Service() {
             ScouterReceiver.ACTION_CLOSE -> intent.getStringExtra(EXTRA_ID)?.let(::dismiss)
             ScouterReceiver.ACTION_CLOSE_ALL -> closeAll()
             ACTION_RESTART_NETWORK -> networkExecutor.execute { networkServer.restart() }
-            ACTION_REFRESH_PREFERENCES ->
-                sheetControlsSide.value = ScouterPreferences.sheetControlsSide(this)
+            ACTION_REFRESH_PREFERENCES -> refreshPreferences()
         }
         return START_STICKY
+    }
+
+    private fun refreshPreferences() {
+        sheetControlsSide.value = ScouterPreferences.sheetControlsSide(this)
+        pullDownAction.value = ScouterPreferences.pullDownAction(this)
+        outsideTapAction.value = ScouterPreferences.outsideTapAction(this)
     }
 
     private fun show(raw: String?, idOverride: String?) {
@@ -137,16 +146,30 @@ class ScouterOverlayService : Service() {
                     selectedId = selectedId.value,
                     visible = sheetVisible.value,
                     controlsSide = sheetControlsSide.value,
+                    pullDownAction = pullDownAction.value,
                     onSelect = {
                         selectedId.value = it
                         sheetVisible.value = true
+                    },
+                    onOutsideTap = { id ->
+                        val entry = entries.firstOrNull { it.document.value.id == id }
+                        val presentation = entry?.document?.value?.presentation
+                        when (outsideTapAction.value) {
+                            OutsideTapAction.Minimize -> {
+                                if (presentation?.minimizable == true) minimize(entry)
+                            }
+                            OutsideTapAction.Close -> {
+                                if (presentation?.dismissible == true) dismiss(id)
+                            }
+                            OutsideTapAction.Nothing -> Unit
+                        }
                     },
                     onClose = ::dismiss,
                     onMinimize = { id -> entries.firstOrNull { it.document.value.id == id }?.let(::minimize) },
                     onHandleDismiss = { id ->
                         val entry = entries.firstOrNull { it.document.value.id == id }
                         val presentation = entry?.document?.value?.presentation
-                        when (ScouterPreferences.pullDownAction(this@ScouterOverlayService)) {
+                        when (pullDownAction.value) {
                             PullDownAction.Minimize -> if (presentation?.minimizable == true) {
                                 minimize(entry)
                             } else {
@@ -198,7 +221,9 @@ class ScouterOverlayService : Service() {
     }
 
     private fun minimizeAll() {
-        entries.toList().forEach { minimize(it) }
+        entries
+            .filter { it.document.value.presentation.minimizable }
+            .forEach { minimize(it) }
     }
 
     private fun closeAll() {
@@ -353,6 +378,25 @@ class ScouterOverlayService : Service() {
                     completeExternalAction(screenId, action.closeAfter)
                 }
             }
+            is ScouterAction.NavigateRoute -> {
+                val routeIntent = Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(action.mapsUrl()),
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                val launched = runCatching {
+                    startActivity(Intent(routeIntent).setPackage(GOOGLE_MAPS_PACKAGE))
+                }.recoverCatching {
+                    startActivity(
+                        Intent.createChooser(
+                            routeIntent,
+                            action.chooserTitle ?: "Choose navigation app",
+                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }.isSuccess
+                if (launched) {
+                    completeExternalAction(screenId, action.closeAfter)
+                }
+            }
             is ScouterAction.Dial -> {
                 val dialIntent = Intent(
                     Intent.ACTION_DIAL,
@@ -370,21 +414,27 @@ class ScouterOverlayService : Service() {
         if (closeAfter) {
             dismiss(screenId)
         } else if (ScouterPreferences.minimizeOnAction(this)) {
-            entries.firstOrNull { it.document.value.id == screenId }?.let(::minimize)
+            entries
+                .firstOrNull {
+                    it.document.value.id == screenId &&
+                        it.document.value.presentation.minimizable
+                }
+                ?.let(::minimize)
         }
     }
 
     private fun layoutParams() = WindowManager.LayoutParams(
         screenWidth(),
-        WindowManager.LayoutParams.WRAP_CONTENT,
+        WindowManager.LayoutParams.MATCH_PARENT,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_DIM_BEHIND,
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
         windowAnimations = 0
+        dimAmount = .40f
     }
 
     private fun screenWidth(): Int = resources.displayMetrics.widthPixels

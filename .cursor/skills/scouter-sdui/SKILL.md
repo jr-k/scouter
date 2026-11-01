@@ -11,7 +11,7 @@ Create content-specific native interfaces from JSON. Do not create permanent scr
 
 1. Decide whether to create a new sheet or replace one.
    - Reuse a stable `scouter_id` to replace and raise an existing sheet.
-   - Use a new ID only for an independent sheet that should appear in the horizontal card switcher.
+   - Use a new ID only for an independent sheet that should appear as another horizontally swipeable page with a footer dot.
 2. Compose a version 1 document from supported components.
 3. Keep a visible close path. Use `presentation.dismissible: true` by default.
 4. Send an implicit broadcast with action `app.scouter.SHOW`.
@@ -39,7 +39,7 @@ Scouter accepts these implicit broadcast actions:
 | `app.scouter.CLOSE` | `scouter_id` required | Close one visible or queued view |
 | `app.scouter.CLOSE_ALL` | none | Close and clear everything |
 
-`scouter_json` is the complete JSON document serialized as a string. `scouter_id` overrides the document's `id`. Reusing an ID replaces and selects that sheet; a distinct ID adds another active card to the horizontal switcher. Only one sheet is rendered at a time.
+`scouter_json` is the complete JSON document serialized as a string. `scouter_id` overrides the document's `id`. Reusing an ID replaces and selects that sheet; a distinct ID adds another horizontally swipeable page. Footer dots indicate the current page; only one sheet is rendered at a time.
 
 ## Show or replace
 
@@ -59,19 +59,19 @@ adb shell am broadcast -a app.scouter.SHOW \
   --es scouter_json '{"version":1,"id":"scan-current","title":"Scan","content":{"type":"column","gap":12,"children":[{"type":"text","value":"Target acquired","style":"title"},{"type":"button","id":"dismiss","label":"Dismiss","action":{"type":"close"}}]}}'
 ```
 
-When Android is locked, Scouter stores this document and posts a local notification. Sending the same ID replaces the queued document. Tapping the notification restores only the bottom sheet over the current app, without opening Scouter's main activity; Android handles authentication when required.
+When Android is locked, Scouter stores this document and posts a local notification. Sending the same ID replaces the queued document. Tapping the notification restores only the bottom sheet over the current app, without opening Scouter's main activity; Android handles authentication when required. Notification permission is mandatory for locked delivery; if posting fails, Scouter removes the unreachable pending entry while retaining the document in Home history.
 
-For network delivery, send the same JSON to `POST http://<phone>:8765/show` with `Authorization: Bearer <token>` and optional `X-Scouter-Id`. Use the address and token displayed by Scouter. A wildcard `0.0.0.0` bind listens on every interface and advertises a detected Tailscale `100.64.0.0/10` address before Wi-Fi. On the emulator, run `adb forward tcp:8765 tcp:8765` and target `http://127.0.0.1:8765`.
+For network delivery, send the same JSON to `POST http://<phone>:8765/show` with `Authorization: Bearer <token>` and optional `X-Scouter-Id`. Use the address and token displayed on Scouter's Connect page. A wildcard `0.0.0.0` bind listens on every interface and advertises a detected Tailscale `100.64.0.0/10` address before Wi-Fi. On the emulator, run `adb forward tcp:8765 tcp:8765` and target `http://127.0.0.1:8765`.
 
-Scouter's foreground overlay service is detached from the main activity. Swiping away the activity does not close active sheets. Their JSON is persisted and restored after process death, application update, or reboot. Android force-stop cannot be bypassed; after a force-stop, the user must open Scouter once before receivers and services may run again.
+Scouter's foreground overlay service is detached from the main activity. Swiping away the activity does not close active sheets. Their JSON is persisted and restored after process death, application update, or reboot; the user can disable automatic service launch after reboot in Preferences. Android force-stop cannot be bypassed; after a force-stop, the user must open Scouter once before receivers and services may run again.
 
 Every accepted `SHOW` is also stored in the app's persistent Home history. Tapping a history card reopens the exact JSON with its stable ID without adding a duplicate history event. Users can clear this history independently from visible and queued overlays.
 
-Checklist state is persistent. A `checklist` uses its document ID, list ID, and item ID as the state key. `link_list`, `address_list`, `phone_list`, and `action_list` can also display persistent checkboxes by setting `"checkable": true`; these lists then require a stable `id`, and each item can use `"checked": true` as its initial value. Reopening the same document from history restores the user's latest checked state.
+Checklist state is persistent. A `checklist` uses its document ID, list ID, and item ID as the state key. Each checklist item can additionally expose an independent action button with `action`, optional `buttonLabel`, and optional `actionIcon`; when an icon is set it replaces the visible button text while `buttonLabel` remains its accessibility label. Pressing the action does not toggle the checkbox. `link_list`, `address_list`, `phone_list`, and `action_list` can also display persistent checkboxes by setting `"checkable": true`; these lists then require a stable `id`, and each item can use `"checked": true` as its initial value. Reopening the same document from history restores the user's latest checked state.
 
 ## MCP transport
 
-Use MCP when an agent or MCP-capable desktop client needs to discover and operate Scouter directly. The endpoint is `http://<phone>:8765/mcp` and uses the same bind host, port, and bearer token as REST. Read the exact endpoint and token from Scouter's Settings screen.
+Use MCP when an agent or MCP-capable desktop client needs to discover and operate Scouter directly. The endpoint is `http://<phone>:8765/mcp` and uses the same bind host, port, and bearer token as REST. Read the exact endpoint and token from Scouter's Connect page.
 
 Example remote-server configuration:
 
@@ -161,14 +161,16 @@ Optional root fields:
 - `titleIcon`
 - `notification`: `title`, `message`, and semantic `icon`
 - `theme`: `background`, `surface`, `text`, `muted`, `accent`, `danger`, `cornerRadius`, `fontScale`
-- `presentation`: `dismissible`, `minimizable`, `showHandle`, `maxHeight`, `horizontalMargin`, `stackOffset`, `radius`
+- `presentation`: `dismissible`, `minimizable`, `showHandle`, `maxHeight`, `horizontalMargin`, `radius`
 
 Colors use `#RRGGBB` or `#RRGGBBAA`.
-For minimized or lock-screen delivery, set a concise `notification.title`, `notification.message`, and an icon from `scouter`, `info`, `warning`, `message`, `navigation`, `phone`, or `task`. When omitted, Scouter derives the title and message from the view content.
+For minimized or lock-screen delivery, set a concise `notification.title`, `notification.message`, and an icon from `scouter`, `info`, `warning`, `message`, `navigation`, `phone`, or `task`. When omitted, Scouter derives the title and message from the view content, and reuses `titleIcon` as the notification icon before falling back to the Scouter glyph.
 For visible UI, `titleIcon` and the `icon` field on text, badge, button, hold/slide controls, links, addresses and phones accept `null`, an icon name, or `{name, position, color, size, spacing}`. Names: `add`, `back`, `calendar`, `call`, `check`, `close`, `delete`, `directions`, `edit`, `email`, `favorite`, `home`, `info`, `link`, `list`, `location`, `lock`, `menu`, `message`, `more`, `notification`, `open`, `pause`, `person`, `phone`, `play`, `search`, `settings`, `share`, `star`, `task`, `time`, `unlock`, `warning`.
 `presentation.radius` accepts one number or independent `topStart`, `topEnd`, `bottomEnd`, and `bottomStart` values from 0 to 160 dp.
-Set `presentation.minimizable` to `true` to expose a Minimize control. It stores the current JSON as a local notification; tapping it restores the same view and stable ID directly over the current app without opening Scouter's main activity. Notification permission is required.
-The user can also drag the grey sheet handle downward to minimize. The gesture is intentionally limited to the handle touch target so scrolling and interactions inside the document are unaffected.
+`presentation.minimizable` defaults to `false`; set it explicitly to `true` on every document that should expose a Minimize control. It stores the current JSON as a local notification; tapping it restores the same view and stable ID directly over the current app without opening Scouter's main activity. Notification permission is required. `presentation.dismissible` defaults to `true`, which is why omitting the presentation settings usually leaves only Close visible.
+The user can drag the grey sheet handle downward. It minimizes or closes according to the user's Pull-down action preference, and is hidden when that action is not allowed by the document. The gesture is intentionally limited to the handle touch target so scrolling and interactions inside the document are unaffected.
+Tapping the darkened area outside the active card minimizes it by default. The user can change this behavior in Preferences to Close or Ignore. The selected action only runs when the document allows it through `presentation.minimizable` or `presentation.dismissible`.
+Long-pressing the Close control closes every active sheet. Long-pressing Minimize minimizes only sheets that explicitly set `presentation.minimizable: true`.
 
 ## Components
 
@@ -184,7 +186,7 @@ The user can also drag the grey sheet handle downward to minimize. The gesture i
 - `badge`: `label`, optional `icon`, `tone`
 - `progress`: `value` between 0 and 1, optional `label`, `showValue`, `color`, `trackColor`
 - `image`: `url`, optional `description`, `height`, `cornerRadius`, `contentScale`
-- `checklist`: stable `id`, `items`, optional callback `action`
+- `checklist`: stable `id`, `items`, optional list-level change callback `action`; every item requires `id` and `label`, and optionally accepts `checked`, `enabled`, an independent `action`, `buttonLabel`, and `actionIcon`
 - `link`: stable `id`, `label`, HTTP(S) `url`, optional `icon`, `description`
 - `link_list`: `links` with IDs, labels, URLs, and optional icons and descriptions
 - `address`: stable `id`, `address`, optional `icon`, `label`, `description`, `latitude`, `longitude`, `buttonLabel`, `chooserTitle`, `closeAfter`
@@ -197,6 +199,8 @@ The user can also drag the grey sheet handle downward to minimize. The gesture i
 - `web`: local `html`, optional `javaScriptEnabled`, `height`
 - `divider`: optional `color`
 - `spacer`: `height`
+
+Lists do not need a special global-button field. Put the list and any number of `button`, `hold_button`, or `slide_action` components in the same `column`. This keeps global actions reorderable and allows several actions below or above the same list.
 
 Text variants: `display`, `title`, `subtitle`, `body`, `caption`, `mono`.
 
@@ -241,6 +245,22 @@ Google Maps navigation, with a system-app fallback:
 {"type":"navigate","address":"12 rue de Charonne, Paris","chooserTitle":"Open directions"}
 ```
 
+Ordered multi-stop route, starting from the device's current location:
+
+```json
+{
+  "type":"navigate_route",
+  "stops":[
+    "Gare du Nord, Paris",
+    {"latitude":48.8530,"longitude":2.3499},
+    "Place de la Nation, Paris"
+  ],
+  "travelMode":"driving"
+}
+```
+
+The last stop is the destination and earlier stops are waypoints. Set optional `origin` to an address string or coordinate object to replace the current location. Supported travel modes are `driving`, `walking`, `bicycling`, `two-wheeler`, and `transit`. A route accepts 1–10 ordered stops, subject to Google Maps' platform-dependent waypoint and 2,048-character URL limits.
+
 System dialer:
 
 ```json
@@ -274,7 +294,7 @@ Scouter adds these extras to callback broadcasts:
 
 Checklist changes use `event=change` with `value=true|false`. Hold completion sends its duration as `value`; slide completion sends `value=1`. Prefer a package-targeted callback so unrelated applications cannot receive it.
 
-`navigate` opens Google Maps directly when installed, then falls back to an Android `geo:` chooser. After a successful launch, Scouter minimizes the originating sheet into its local notification; set `closeAfter: true` to close it instead. `dial` opens the dialer but never places a call automatically. `open_url` accepts HTTP(S) only.
+`navigate` opens Google Maps directly when installed, then falls back to an Android `geo:` chooser. `dial` opens the dialer but never places a call automatically. `open_url` accepts HTTP(S) only. After a successful external launch, `closeAfter: true` closes the originating sheet. Otherwise it stays visible unless `presentation.minimizable` is true and the user enabled **Minimize after actions** in Preferences.
 
 ## Composition rules
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import json
 import http.client
+import ipaddress
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -25,6 +27,7 @@ label{display:block;color:var(--muted);font-size:13px;margin:0 0 7px}input,texta
 input:focus,textarea:focus{border-color:var(--acid)}.field{margin-bottom:15px}textarea{min-height:570px;resize:vertical;font:13px/1.55 ui-monospace,SFMono-Regular,monospace}
 button{border:0;border-radius:12px;padding:11px 15px;font:600 14px/1 ui-sans-serif,system-ui;cursor:pointer;background:var(--acid);color:#0a100d}
 button.secondary{background:#202c25;color:var(--text)}button.danger{background:transparent;color:var(--danger);border:1px solid #55322d}
+.toggles{display:flex;gap:16px;flex-wrap:wrap;margin:-4px 0 15px}.toggle{display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px;cursor:pointer}.toggle input{width:auto;margin:0;accent-color:var(--acid)}
 .buttons{display:flex;gap:9px;flex-wrap:wrap}.hint{color:var(--muted);font-size:13px;margin:14px 0 0}.editor-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 h2{font-size:18px;margin:0}.result{margin-top:13px;color:var(--muted);min-height:22px}.result.error{color:var(--danger)}
 @media(max-width:760px){.layout{grid-template-columns:1fr}.mast{align-items:start;gap:20px;flex-direction:column}textarea{min-height:420px}}
@@ -37,13 +40,18 @@ h2{font-size:18px;margin:0}.result{margin-top:13px;color:var(--muted);min-height
     <div class="field"><label for="endpoint">Android address</label><input id="endpoint" value="http://127.0.0.1:8765"></div>
     <div class="field"><label for="token">Connection token</label><input id="token" type="password" placeholder="Paste the token shown in Scouter"></div>
     <div class="field"><label for="screenId">View identifier</label><input id="screenId" value="local-preview"></div>
+    <div class="toggles">
+      <label class="toggle"><input id="minimizable" type="checkbox"> Minimizable</label>
+      <label class="toggle"><input id="freshId" type="checkbox"> New ID per random view</label>
+    </div>
     <div class="buttons">
       <button id="send">Send view</button>
       <button id="random" class="secondary">New random view</button>
+      <button id="spawn" class="secondary">Spawn 10 cards</button>
       <button id="health" class="secondary">Check connection</button>
       <button id="close" class="danger">Close all</button>
     </div>
-    <p class="hint">For the Android emulator, keep 127.0.0.1 after running the ADB port forwarding command. For a phone, use the address shown by Scouter.</p>
+    <p class="hint">For the Android emulator, keep 127.0.0.1 after running the ADB port forwarding command. For a phone, use the Wi-Fi or Tailscale address shown by Scouter. “Spawn 10 cards” always uses distinct IDs so the cards stack in the switcher.</p>
     <div id="result" class="result"></div>
   </section>
   <section class="card">
@@ -191,29 +199,69 @@ const titleIcons={
   "Useful links":"link","On the way":"directions","Access controls":"lock",
   "Now playing":"play","Today":"calendar","Focus":"time"
 };
-let previousLayout=-1;
-function randomDocument(){
+let previousLayout=-1,spawnCounter=0;
+function nextId(){
+  const base=$("screenId").value||"local-preview";
+  if(!$("freshId").checked)return base;
+  spawnCounter+=1;return `${base}-${Date.now().toString(36)}-${spawnCounter}`;
+}
+function randomDocument(id){
   const p=pick(palettes);let index;
   do{index=Math.floor(Math.random()*layouts.length)}while(index===previousLayout&&layouts.length>1);
   previousLayout=index;
   const layout=layouts[index](p);
-  return {version:1,id:$("screenId").value||"local-preview",title:layout.title,titleIcon:titleIcons[layout.title]||null,notification:{icon:notificationIcons[layout.title]||"scouter",...layout.notification},theme:{...p,cornerRadius:28,...layout.theme},presentation:{dismissible:true,maxHeight:.84,horizontalMargin:12,...layout.presentation},content:layout.content};
+  const notification={...layout.notification};
+  if(notificationIcons[layout.title])notification.icon=notificationIcons[layout.title];
+  return {version:1,id:id||nextId(),title:layout.title,titleIcon:titleIcons[layout.title]||null,notification,theme:{...p,cornerRadius:28,...layout.theme},presentation:{dismissible:true,minimizable:$("minimizable").checked,maxHeight:.84,horizontalMargin:12,...layout.presentation},content:layout.content};
 }
-function save(){localStorage.endpoint=$("endpoint").value;localStorage.token=$("token").value}
+function save(){localStorage.endpoint=$("endpoint").value;localStorage.token=$("token").value;localStorage.minimizable=$("minimizable").checked;localStorage.freshId=$("freshId").checked}
+function report(ok,text){$("dot").className=ok?"dot ok":"dot bad";$("status").textContent=ok?"Connected":"Unavailable";$("result").className=ok?"result":"result error";$("result").textContent=text}
+async function send(operation,document,id){
+  const response=await fetch("/api/proxy",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operation,endpoint:$("endpoint").value,token:$("token").value,id,document})});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||"Request failed");
+}
 async function call(operation){
   save();$("result").className="result";$("result").textContent="Sending…";
   let document;
-  try{document=JSON.parse($("document").value)}catch(e){$("result").className="result error";$("result").textContent="Invalid JSON: "+e.message;return}
-  try{
-    const response=await fetch("/api/proxy",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operation,endpoint:$("endpoint").value,token:$("token").value,id:$("screenId").value,document})});
-    const data=await response.json();if(!response.ok)throw new Error(data.error||"Request failed");
-    $("dot").className="dot ok";$("status").textContent="Connected";$("result").textContent=operation==="show"?"View accepted":"Command accepted";
-  }catch(e){$("dot").className="dot bad";$("status").textContent="Unavailable";$("result").className="result error";$("result").textContent=e.message}
+  try{document=JSON.parse($("document").value)}catch(e){report(false,"Invalid JSON: "+e.message);return}
+  try{await send(operation,document,document.id||$("screenId").value);report(true,operation==="show"?"View accepted":"Command accepted")}
+  catch(e){report(false,e.message)}
 }
 $("random").onclick=async()=>{$("document").value=JSON.stringify(randomDocument(),null,2);await call("show")};
+$("spawn").onclick=async()=>{
+  save();$("result").className="result";
+  const base=$("screenId").value||"local-preview",stamp=Date.now().toString(36);
+  let last;
+  try{
+    for(let i=1;i<=10;i++){
+      last=randomDocument(`${base}-${stamp}-${String(i).padStart(2,"0")}`);
+      $("result").textContent=`Sending ${i}/10…`;
+      await send("show",last,last.id);
+    }
+    $("document").value=JSON.stringify(last,null,2);report(true,"10 cards accepted");
+  }catch(e){report(false,e.message)}
+};
 $("send").onclick=()=>call("show");$("health").onclick=()=>call("health");$("close").onclick=()=>call("close-all");
-$("endpoint").value=localStorage.endpoint||$("endpoint").value;$("token").value=localStorage.token||"";$("document").value=JSON.stringify(randomDocument(),null,2);
+$("endpoint").value=localStorage.endpoint||$("endpoint").value;$("token").value=localStorage.token||"";
+$("minimizable").checked=localStorage.minimizable==="true";$("freshId").checked=localStorage.freshId==="true";
+$("minimizable").onchange=$("freshId").onchange=save;
+$("document").value=JSON.stringify(randomDocument(),null,2);
 </script></body></html>"""
+
+
+def is_local_endpoint(endpoint):
+    parsed = urllib.parse.urlparse(endpoint)
+    if parsed.scheme != "http" or not parsed.hostname:
+        return False
+    host = parsed.hostname
+    if host == "localhost":
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    tailscale = ipaddress.ip_network("100.64.0.0/10")
+    return address.is_loopback or address.is_private or address in tailscale
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -238,8 +286,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Request is too large")
             payload = json.loads(self.rfile.read(length))
             endpoint = str(payload["endpoint"]).rstrip("/")
-            if not endpoint.startswith(("http://127.0.0.1:", "http://localhost:", "http://10.", "http://192.168.", "http://172.")):
-                raise ValueError("Use a local-network Android address")
+            if not is_local_endpoint(endpoint):
+                raise ValueError("Use a local-network or Tailscale Android address")
             operation = payload["operation"]
             if operation == "show":
                 path, method = "/show", "POST"

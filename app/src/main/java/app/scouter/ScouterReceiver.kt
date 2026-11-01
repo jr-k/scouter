@@ -36,7 +36,10 @@ class ScouterReceiver : BroadcastReceiver() {
 
                 if (isLocked(context)) {
                     store.put(document.id, raw!!)
-                    postPendingNotification(context, document)
+                    if (!postPendingNotification(context, document)) {
+                        store.remove(document.id)
+                        Log.w(TAG, "Discarded locked delivery ${document.id}: no notification could be posted")
+                    }
                 } else {
                     store.remove(document.id)
                     cancelNotification(context, document.id)
@@ -120,7 +123,8 @@ class ScouterReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             val notification = Notification.Builder(context, PENDING_CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_scouter_notification)
+                .setSmallIcon(NotificationIcons.smallIcon(context, document))
+                .setLargeIcon(NotificationIcons.largeIcon(context, document))
                 .setContentTitle(document.notificationTitle())
                 .setContentText(
                     document.notificationMessage() ?: context.getString(R.string.pending_notification_text),

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash icon: rounded-square tile on the brand ink. Drawn as-is by the system splash
+     (no circular mask), so the tile shape is what the user sees. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="@color/scouter_ink_raised"
+        android:pathData="M36,18h36a18,18 0 0 1 18,18v36a18,18 0 0 1 -18,18h-36a18,18 0 0 1 -18,-18v-36a18,18 0 0 1 18,-18z" />
+    <group
+        android:scaleX="1.5"
+        android:scaleY="1.5"
+        android:translateX="18"
+        android:translateY="18">
+        <path
+            android:fillColor="@color/scouter_accent"
+            android:fillType="evenOdd"
+            android:pathData="M24,8a16,16 0,1 0,0 32a16,16 0,1 0,0 -32M24,13a11,11 0,1 1,0 22a11,11 0,1 1,0 -22M22,18h4v4h4v4h-4v4h-4v-4h-4v-4h4z" />
+    </group>
+</vector>

@@ -67,6 +67,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedButton
@@ -88,6 +89,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -95,6 +97,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -114,6 +118,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import app.scouter.model.ActionItem
 import app.scouter.ChecklistStateStore
+import app.scouter.PullDownAction
 import app.scouter.SheetControlsSide
 import app.scouter.model.Corners
 import app.scouter.model.IconSpec
@@ -176,7 +181,9 @@ fun ScouterOverlayHost(
     selectedId: String?,
     visible: Boolean,
     controlsSide: SheetControlsSide,
+    pullDownAction: PullDownAction,
     onSelect: (String) -> Unit,
+    onOutsideTap: (String) -> Unit,
     onClose: (String) -> Unit,
     onMinimize: (String) -> Unit,
     onHandleDismiss: (String) -> Boolean,
@@ -191,6 +198,8 @@ fun ScouterOverlayHost(
     val pagerState = rememberPagerState(initialPage = selectedIndex) { documents.size }
     val currentDocument = documents.getOrNull(pagerState.currentPage) ?: documents[selectedIndex]
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    var sheetBounds by remember(currentDocument.id) { mutableStateOf<Rect?>(null) }
+    var actionsBounds by remember(currentDocument.id) { mutableStateOf<Rect?>(null) }
     LaunchedEffect(selectedId, documents.map(ScouterDocument::id)) {
         val target = documents.indexOfFirst { it.id == selectedId }
         if (target >= 0 && target != pagerState.currentPage) {
@@ -202,93 +211,127 @@ fun ScouterOverlayHost(
             ?.takeIf { it != selectedId }
             ?.let(onSelect)
     }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = screenHeight),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+    LaunchedEffect(
+        currentDocument.id,
+        currentDocument.presentation.minimizable,
+        currentDocument.presentation.dismissible,
     ) {
-        Box(
-            Modifier
-                .weight(1f, fill = false)
-                .fillMaxWidth(),
-        ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight(Alignment.Bottom),
-                key = { documents[it].id },
-                verticalAlignment = Alignment.Bottom,
-                userScrollEnabled = documents.size > 1,
-            ) { page ->
-                val document = documents[page]
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .weight(1f, fill = false)
-                            .padding(
-                                horizontal = document.presentation.horizontalMargin.dp.coerceAtLeast(8.dp),
-                            ),
-                    ) {
-                        ScouterSheet(
-                            document = document,
-                            depth = 0,
-                            visible = visible,
-                            animateEntrance = documents.size == 1,
-                            onHandleDismiss = { onHandleDismiss(document.id) },
-                            onAction = { elementId, action, value, event ->
-                                onAction(document.id, elementId, action, value, event)
-                            },
-                        )
+        if (!currentDocument.presentation.minimizable && !currentDocument.presentation.dismissible) {
+            actionsBounds = null
+        }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(currentDocument.id, visible, sheetBounds, actionsBounds) {
+                detectTapGestures { offset ->
+                    val insideSheet = sheetBounds?.contains(offset) == true
+                    val insideActions = actionsBounds?.contains(offset) == true
+                    if (visible && !insideSheet && !insideActions) {
+                        onOutsideTap(currentDocument.id)
                     }
-                    SheetActions(
-                        document = document,
-                        side = controlsSide,
-                        onMinimize = { onMinimize(document.id) },
-                        onClose = { onClose(document.id) },
-                        onMinimizeAll = onMinimizeAll,
-                        onCloseAll = onCloseAll,
-                    )
+                }
+            },
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = screenHeight),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                Modifier
+                    .weight(1f, fill = false)
+                    .fillMaxWidth(),
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight(Alignment.Bottom),
+                    key = { documents[it].id },
+                    verticalAlignment = Alignment.Bottom,
+                    userScrollEnabled = documents.size > 1,
+                ) { page ->
+                    val document = documents[page]
+                    Box(
+                        modifier = Modifier.fillMaxHeight(),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        Box(
+                            Modifier.padding(
+                                horizontal = document.presentation.horizontalMargin.dp,
+                            ),
+                        ) {
+                            ScouterSheet(
+                                document = document,
+                                depth = 0,
+                                visible = visible,
+                                pullDownAction = pullDownAction,
+                                onBoundsChanged = if (page == pagerState.currentPage) {
+                                    { sheetBounds = it }
+                                } else {
+                                    {}
+                                },
+                                onHandleDismiss = { onHandleDismiss(document.id) },
+                                footer = if (documents.size > 1) {
+                                    {
+                                        CarouselPagerDots(
+                                            count = documents.size,
+                                            selectedIndex = pagerState.currentPage,
+                                            accent = color(document.theme.accent),
+                                            muted = color(document.theme.muted),
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
+                                onAction = { elementId, action, value, event ->
+                                    onAction(document.id, elementId, action, value, event)
+                                },
+                            )
+                        }
+                    }
                 }
             }
-            if (pagerState.canScrollBackward) {
-                CarouselEdgeGlow(
-                    modifier = Modifier.align(Alignment.CenterStart),
-                    color = color(currentDocument.theme.accent),
-                    fromStart = true,
-                )
-            }
-            if (pagerState.canScrollForward) {
-                CarouselEdgeGlow(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    color = color(currentDocument.theme.accent),
-                    fromStart = false,
-                )
-            }
+            SheetActions(
+                document = currentDocument,
+                side = controlsSide,
+                onMinimize = { onMinimize(currentDocument.id) },
+                onClose = { onClose(currentDocument.id) },
+                onMinimizeAll = onMinimizeAll,
+                onCloseAll = onCloseAll,
+                onBoundsChanged = { actionsBounds = it },
+            )
         }
     }
 }
 
 @Composable
-private fun CarouselEdgeGlow(
-    modifier: Modifier,
-    color: Color,
-    fromStart: Boolean,
+private fun CarouselPagerDots(
+    count: Int,
+    selectedIndex: Int,
+    accent: Color,
+    muted: Color,
 ) {
-    val colors = if (fromStart) {
-        listOf(color.copy(alpha = .58f), color.copy(alpha = .18f), Color.Transparent)
-    } else {
-        listOf(Color.Transparent, color.copy(alpha = .18f), color.copy(alpha = .58f))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(count) { index ->
+            if (index > 0) Spacer(Modifier.width(7.dp))
+            Box(
+                Modifier
+                    .size(if (index == selectedIndex) 7.dp else 6.dp)
+                    .clip(CircleShape)
+                    .background(if (index == selectedIndex) accent else muted.copy(alpha = .34f)),
+            )
+        }
     }
-    Box(
-        modifier = modifier
-            .fillMaxHeight(.72f)
-            .width(9.dp)
-            .background(Brush.horizontalGradient(colors)),
-    )
 }
 
 @Composable
@@ -299,6 +342,7 @@ private fun SheetActions(
     onClose: () -> Unit,
     onMinimizeAll: () -> Unit,
     onCloseAll: () -> Unit,
+    onBoundsChanged: (Rect) -> Unit,
 ) {
     if (!document.presentation.minimizable && !document.presentation.dismissible) return
     val theme = document.theme
@@ -306,11 +350,12 @@ private fun SheetActions(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = document.presentation.horizontalMargin.dp.coerceAtLeast(8.dp))
+            .padding(horizontal = document.presentation.horizontalMargin.dp)
             .height(50.dp)
             .clip(shape)
             .background(color(theme.surface))
-            .border(1.dp, color(theme.accent).copy(alpha = .14f), shape),
+            .border(1.dp, theme.outlineColor(), shape)
+            .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val closeFirst = side == SheetControlsSide.Left
@@ -318,7 +363,7 @@ private fun SheetActions(
             SheetActionSegment("Close", onClose, onCloseAll, color(theme.text), Modifier.weight(1f))
         }
         if (closeFirst && document.presentation.dismissible && document.presentation.minimizable) {
-            SheetActionDivider(color(theme.accent))
+            SheetActionDivider(theme.outlineColor())
         }
         if (document.presentation.minimizable) {
             SheetActionSegment(
@@ -330,7 +375,7 @@ private fun SheetActions(
             )
         }
         if (!closeFirst && document.presentation.dismissible && document.presentation.minimizable) {
-            SheetActionDivider(color(theme.accent))
+            SheetActionDivider(theme.outlineColor())
         }
         if (!closeFirst && document.presentation.dismissible) {
             SheetActionSegment("Close", onClose, onCloseAll, color(theme.text), Modifier.weight(1f))
@@ -366,25 +411,39 @@ private fun SheetActionSegment(
 }
 
 @Composable
-private fun SheetActionDivider(accent: Color) {
+private fun SheetActionDivider(outline: Color) {
     Box(
         Modifier
             .width(1.dp)
-            .fillMaxHeight(.58f)
-            .background(accent.copy(alpha = .2f)),
+            .fillMaxHeight()
+            .background(outline),
     )
 }
+
+/**
+ * Neutral One UI-style outline for sheet chrome: a faint tint of the text
+ * color, never the accent, so card edges stay quiet on any palette.
+ */
+private fun ScouterTheme.outlineColor(): Color = color(text).copy(alpha = .10f)
 
 @Composable
 fun ScouterSheet(
     document: ScouterDocument,
     depth: Int,
     visible: Boolean,
-    animateEntrance: Boolean = true,
+    pullDownAction: PullDownAction = PullDownAction.Minimize,
+    onBoundsChanged: (Rect) -> Unit = {},
     onHandleDismiss: () -> Boolean,
+    footer: (@Composable () -> Unit)? = null,
     onAction: (String, ScouterAction, String?, String) -> Unit,
 ) {
     val theme = document.theme
+    // The handle only exists to be pulled down; hide it when the configured
+    // pull-down action cannot apply to this document.
+    val handleEnabled = document.presentation.showHandle && when (pullDownAction) {
+        PullDownAction.Minimize -> document.presentation.minimizable
+        PullDownAction.Close -> document.presentation.dismissible
+    }
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val density = LocalDensity.current
     val stackScale = (1f - depth * .025f).coerceAtLeast(.9f)
@@ -400,11 +459,8 @@ fun ScouterSheet(
         },
         label = "sheetHandleOffset",
     )
-    val handleGesture = if (
-        document.presentation.showHandle &&
-        (document.presentation.minimizable || document.presentation.dismissible)
-    ) {
-        Modifier.pointerInput(document.id) {
+    val handleGesture = if (handleEnabled) {
+        Modifier.pointerInput(document.id, pullDownAction) {
             detectVerticalDragGestures(
                 onDragStart = { handleDragging = true },
                 onVerticalDrag = { change, amount ->
@@ -438,9 +494,10 @@ fun ScouterSheet(
             bottomStart = theme.cornerRadius.dp,
             bottomEnd = theme.cornerRadius.dp,
         )
-    val visibilityState = remember(document.id) {
-        MutableTransitionState(!animateEntrance && visible)
-    }
+    // A newly composed sheet must participate in measurement immediately.
+    // Starting hidden inside the pager's wrap-content layout can lock its
+    // measured height to zero until a gesture forces another measure pass.
+    val visibilityState = remember(document.id) { MutableTransitionState(visible) }
     LaunchedEffect(visible) {
         visibilityState.targetState = visible
     }
@@ -469,20 +526,23 @@ fun ScouterSheet(
                 .background(color(theme.background))
                 .border(
                     width = 1.dp,
-                    color = color(theme.accent).copy(alpha = .18f),
+                    color = theme.outlineColor(),
                     shape = sheetShape,
                 )
+                .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
                 .padding(horizontal = 20.dp)
                 .padding(top = 10.dp, bottom = 20.dp),
         ) {
-            SheetChrome(document, handleGesture)
+            SheetChrome(document, handleEnabled, handleGesture)
             Column(
                 modifier = Modifier
+                    .weight(1f, fill = false)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
             ) {
                 RenderNode(document.content, theme, onAction)
             }
+            footer?.invoke()
         }
     }
     }
@@ -491,11 +551,12 @@ fun ScouterSheet(
 @Composable
 private fun SheetChrome(
     document: ScouterDocument,
+    showHandle: Boolean,
     handleGesture: Modifier,
 ) {
     val theme = document.theme
     Box(Modifier.fillMaxWidth().height(if (document.title == null) 36.dp else 52.dp)) {
-        if (document.presentation.showHandle) {
+        if (showHandle) {
             Box(
                 Modifier
                     .align(Alignment.TopCenter)
@@ -1100,6 +1161,36 @@ private fun NodeChecklist(
                         textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None,
                         modifier = Modifier.weight(1f),
                     )
+                    item.action?.let { action ->
+                        val trigger = { onAction(item.id, action, null, "click") }
+                        val actionColor = color(if (item.enabled) theme.accent else theme.muted)
+                        if (item.actionIcon != null) {
+                            IconButton(
+                                onClick = trigger,
+                                enabled = item.enabled,
+                                modifier = Modifier.size(48.dp),
+                            ) {
+                                UiIcon(
+                                    icon = item.actionIcon,
+                                    fallbackColor = actionColor,
+                                    contentDescription = item.buttonLabel,
+                                )
+                            }
+                        } else {
+                            TextButton(
+                                onClick = trigger,
+                                enabled = item.enabled,
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text(
+                                    text = requireNotNull(item.buttonLabel),
+                                    color = actionColor,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1140,7 +1231,6 @@ private fun NodeLink(
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (checkable) {
                 Checkbox(
@@ -1155,8 +1245,12 @@ private fun NodeLink(
                         uncheckedColor = color(theme.muted),
                     ),
                 )
+                Spacer(Modifier.width(12.dp))
             }
-            node.icon?.let { UiIcon(it, color(theme.accent)) }
+            if (node.icon?.position == "start") {
+                UiIcon(node.icon, color(theme.accent))
+                Spacer(Modifier.width(node.icon.spacing.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     node.label,
@@ -1167,6 +1261,11 @@ private fun NodeLink(
                     Text(it, color = color(theme.muted), fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
+            if (node.icon?.position == "end") {
+                Spacer(Modifier.width(node.icon.spacing.dp))
+                UiIcon(node.icon, color(theme.accent))
+            }
+            Spacer(Modifier.width(12.dp))
             Text("Open", color = color(theme.accent), fontSize = 13.sp)
         }
     }
@@ -1220,7 +1319,6 @@ private fun ActionListItem(
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (checkable) {
                 Checkbox(
@@ -1235,8 +1333,12 @@ private fun ActionListItem(
                         uncheckedColor = color(theme.muted),
                     ),
                 )
+                Spacer(Modifier.width(12.dp))
             }
-            item.icon?.let { UiIcon(it, color(theme.accent)) }
+            if (item.icon?.position == "start") {
+                UiIcon(item.icon, color(theme.accent))
+                Spacer(Modifier.width(item.icon.spacing.dp))
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     item.label,
@@ -1250,6 +1352,11 @@ private fun ActionListItem(
                     Text(it, color = color(theme.muted), fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
+            if (item.icon?.position == "end") {
+                Spacer(Modifier.width(item.icon.spacing.dp))
+                UiIcon(item.icon, color(theme.accent))
+            }
+            Spacer(Modifier.width(12.dp))
             Text(item.buttonLabel, color = color(theme.accent), fontSize = 13.sp)
         }
     }
@@ -1530,16 +1637,21 @@ private fun IconLabel(
 }
 
 @Composable
-private fun UiIcon(icon: IconSpec, fallbackColor: Color) {
+private fun UiIcon(
+    icon: IconSpec,
+    fallbackColor: Color,
+    contentDescription: String? = null,
+) {
     Icon(
         imageVector = icon.name.iconVector(),
-        contentDescription = null,
+        contentDescription = contentDescription,
         tint = icon.color?.let(::color) ?: fallbackColor,
         modifier = Modifier.size(icon.size.dp),
     )
 }
 
-private fun String.iconVector(): ImageVector = when (this) {
+/** Maps a Scouter semantic icon name to its Material glyph; shared with notifications. */
+internal fun String.iconVector(): ImageVector = when (this) {
     "add" -> Icons.Filled.Add
     "back" -> Icons.Filled.ArrowBack
     "calendar" -> Icons.Filled.CalendarToday
@@ -1547,7 +1659,7 @@ private fun String.iconVector(): ImageVector = when (this) {
     "check" -> Icons.Filled.Check
     "close" -> Icons.Filled.Close
     "delete" -> Icons.Filled.Delete
-    "directions" -> Icons.Filled.Directions
+    "directions", "navigation" -> Icons.Filled.Directions
     "edit" -> Icons.Filled.Edit
     "email" -> Icons.Filled.Email
     "favorite" -> Icons.Filled.Favorite
@@ -1604,7 +1716,7 @@ private fun styledModifier(initial: Modifier, style: UiStyle, defaultFill: Boole
     style.aspectRatio?.let { modifier = modifier.aspectRatio(it) }
     if (style.opacity < 1f) modifier = modifier.graphicsLayer { alpha = style.opacity }
     val shape = style.radius.shapeOr(RoundedCornerShape(0.dp))
-    if (style.radius.hasRadius()) modifier = modifier.clip(shape)
+    if (style.radius != null) modifier = modifier.clip(shape)
     style.background?.let { modifier = modifier.background(color(it), shape) }
     if (style.borderColor != null && style.borderWidth > 0f) {
         modifier = modifier.border(style.borderWidth.dp, color(style.borderColor), shape)
@@ -1617,11 +1729,8 @@ private fun styledModifier(initial: Modifier, style: UiStyle, defaultFill: Boole
     )
 }
 
-private fun Corners.hasRadius(): Boolean =
-    topStart > 0f || topEnd > 0f || bottomEnd > 0f || bottomStart > 0f
-
-private fun Corners.shapeOr(fallback: RoundedCornerShape): RoundedCornerShape =
-    if (hasRadius()) {
+private fun Corners?.shapeOr(fallback: RoundedCornerShape): RoundedCornerShape =
+    if (this != null) {
         RoundedCornerShape(
             topStart = topStart.dp,
             topEnd = topEnd.dp,

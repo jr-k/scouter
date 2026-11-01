@@ -9,6 +9,7 @@ import app.scouter.overlay.ScouterOverlayService
 class ScouterBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action !in SUPPORTED_ACTIONS) return
+        if (!ScouterPreferences.launchAtBoot(context)) return
         val shouldRun = ScouterNetworkConfig.settings(context).enabled ||
             ActiveDocumentStore(context).hasDocuments()
         if (shouldRun) {

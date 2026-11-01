@@ -2,6 +2,15 @@ package app.scouter.model
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
+private const val DEFAULT_BACKGROUND = "#1C1C1E"
+private const val DEFAULT_SURFACE = "#29292C"
+private const val DEFAULT_TEXT = "#FAFAFC"
+private const val DEFAULT_MUTED = "#A9A9B0"
+private const val DEFAULT_ACCENT = "#5B9CFF"
+private const val DEFAULT_DANGER = "#FF625C"
 
 data class ScouterDocument(
     val version: Int,
@@ -25,17 +34,18 @@ data class IconSpec(
 data class NotificationContent(
     val title: String? = null,
     val message: String? = null,
-    val icon: String = "scouter",
+    /** Explicit semantic icon, or null when the sender left it to Scouter. */
+    val icon: String? = null,
 )
 
 data class ScouterTheme(
-    val background: String = "#101714",
-    val surface: String = "#18211D",
-    val text: String = "#F3F8F5",
-    val muted: String = "#A8B5AD",
-    val accent: String = "#71C56E",
-    val danger: String = "#FF6B5F",
-    val cornerRadius: Float = 20f,
+    val background: String = DEFAULT_BACKGROUND,
+    val surface: String = DEFAULT_SURFACE,
+    val text: String = DEFAULT_TEXT,
+    val muted: String = DEFAULT_MUTED,
+    val accent: String = DEFAULT_ACCENT,
+    val danger: String = DEFAULT_DANGER,
+    val cornerRadius: Float = 18f,
     val fontScale: Float = 1f,
 )
 
@@ -45,7 +55,6 @@ data class Presentation(
     val showHandle: Boolean = true,
     val maxHeight: Float = .82f,
     val horizontalMargin: Float = 12f,
-    val stackOffset: Float = 12f,
     val radius: Corners? = null,
 )
 
@@ -73,7 +82,7 @@ data class UiStyle(
     val background: String? = null,
     val borderColor: String? = null,
     val borderWidth: Float = 0f,
-    val radius: Corners = Corners(),
+    val radius: Corners? = null,
     val opacity: Float = 1f,
     val weight: Float? = null,
     val aspectRatio: Float? = null,
@@ -281,6 +290,9 @@ data class ChecklistItem(
     val label: String,
     val checked: Boolean,
     val enabled: Boolean,
+    val action: ScouterAction?,
+    val buttonLabel: String?,
+    val actionIcon: IconSpec?,
 )
 
 data class LinkItem(
@@ -302,6 +314,22 @@ data class ActionItem(
     val action: ScouterAction,
     val checked: Boolean,
 )
+
+data class RouteLocation(
+    val address: String?,
+    val latitude: Double?,
+    val longitude: Double?,
+) {
+    fun queryValue(): String = address ?: "$latitude,$longitude"
+}
+
+/**
+ * Semantic icon name for the minimized/lock-screen notification: an explicit
+ * `notification.icon` wins, then the sheet's `titleIcon`, else null for the
+ * default Scouter glyph. The literal "scouter" also maps to the default.
+ */
+fun ScouterDocument.notificationIconName(): String? =
+    (notification.icon ?: titleIcon?.name)?.takeIf { it != "scouter" }
 
 fun ScouterDocument.notificationTitle(): String =
     notification.title ?: title ?: content.notificationTextCandidates().firstOrNull() ?: "Scouter"
@@ -357,8 +385,40 @@ sealed interface ScouterAction {
         val closeAfter: Boolean,
     ) : ScouterAction
 
+    data class NavigateRoute(
+        val origin: RouteLocation?,
+        val stops: List<RouteLocation>,
+        val travelMode: String,
+        val chooserTitle: String?,
+        val closeAfter: Boolean,
+    ) : ScouterAction
+
     data class Dial(val phoneNumber: String, val closeAfter: Boolean) : ScouterAction
     data object None : ScouterAction
+}
+
+fun ScouterAction.NavigateRoute.mapsUrl(): String {
+    fun String.encoded(): String = URLEncoder.encode(this, StandardCharsets.UTF_8.name())
+    val destination = stops.last().queryValue().encoded()
+    val waypoints = stops.dropLast(1).joinToString("%7C") { it.queryValue().encoded() }
+    return buildString {
+        append("https://www.google.com/maps/dir/?api=1")
+        origin?.let { append("&origin=").append(it.queryValue().encoded()) }
+        append("&destination=").append(destination)
+        if (waypoints.isNotEmpty()) append("&waypoints=").append(waypoints)
+        append("&travelmode=").append(travelMode)
+        append("&dir_action=navigate")
+    }
+}
+
+private fun ScouterAction.defaultButtonLabel(): String = when (this) {
+    is ScouterAction.Navigate -> "Navigate"
+    is ScouterAction.NavigateRoute -> "Route"
+    is ScouterAction.OpenUrl -> "Open"
+    is ScouterAction.Dial -> "Dial"
+    is ScouterAction.Broadcast -> "Run"
+    ScouterAction.Close -> "Close"
+    ScouterAction.None -> ""
 }
 
 object ScouterParser {
@@ -439,11 +499,11 @@ object ScouterParser {
                     lineHeight = value.optionalFloat("lineHeight", 8f, 120f),
                     letterSpacing = value.optionalFloat("letterSpacing", -8f, 32f),
                     fontFamily = value.optString("fontFamily").takeIf(String::isNotBlank),
-                    italic = value.optBoolean("italic", false),
+                    italic = value.boolean("italic", false),
                     icon = parseIcon(value.opt("icon")),
                 )
                 "button" -> UiNode.Button(
-                    id = id ?: error("A button requires a stable id"),
+                    id = (id ?: error("A button requires a stable id")).validElementId(),
                     style = style,
                     label = value.requireString("label").take(120),
                     variant = value.optString(
@@ -454,12 +514,12 @@ object ScouterParser {
                     pressedColor = value.optionalColor("pressedColor"),
                     textColor = value.optionalColor("textColor"),
                     pressedScale = value.float("pressedScale", .975f, .9f, 1f),
-                    enabled = value.optBoolean("enabled", true),
+                    enabled = value.boolean("enabled", true),
                     icon = parseIcon(value.opt("icon")),
-                    action = parseAction(value.optJSONObject("action")),
+                    action = parseAction(value.optionalObject("action")),
                 )
                 "holdbutton", "hold_button" -> UiNode.HoldButton(
-                    id = id ?: error("A hold button requires a stable id"),
+                    id = (id ?: error("A hold button requires a stable id")).validElementId(),
                     style = style,
                     label = value.requireString("label").take(120),
                     completedLabel = value.optString("completedLabel").takeIf(String::isNotBlank)?.take(120),
@@ -467,13 +527,13 @@ object ScouterParser {
                     color = value.optionalColor("color"),
                     trackColor = value.optionalColor("trackColor"),
                     textColor = value.optionalColor("textColor"),
-                    enabled = value.optBoolean("enabled", true),
+                    enabled = value.boolean("enabled", true),
                     icon = parseIcon(value.opt("icon")),
                     vibrateSequence = value.vibrateSequence(),
-                    action = parseAction(value.optJSONObject("action")),
+                    action = parseAction(value.optionalObject("action")),
                 )
                 "slideaction", "slide_action", "slide_to_action" -> UiNode.SlideAction(
-                    id = id ?: error("A slide action requires a stable id"),
+                    id = (id ?: error("A slide action requires a stable id")).validElementId(),
                     style = style,
                     label = value.requireString("label").take(120),
                     completedLabel = value.optString("completedLabel").takeIf(String::isNotBlank)?.take(120),
@@ -481,10 +541,10 @@ object ScouterParser {
                     color = value.optionalColor("color"),
                     trackColor = value.optionalColor("trackColor"),
                     textColor = value.optionalColor("textColor"),
-                    enabled = value.optBoolean("enabled", true),
+                    enabled = value.boolean("enabled", true),
                     icon = parseIcon(value.opt("icon")),
                     vibrateSequence = value.vibrateSequence(),
-                    action = parseAction(value.optJSONObject("action")),
+                    action = parseAction(value.optionalObject("action")),
                 )
                 "badge" -> UiNode.Badge(
                     id,
@@ -498,7 +558,7 @@ object ScouterParser {
                     style,
                     value.float("value", 0f, 0f, 1f),
                     value.optString("label").takeIf(String::isNotBlank),
-                    value.optBoolean("showValue", false),
+                    value.boolean("showValue", false),
                     value.optionalColor("color"),
                     value.optionalColor("trackColor"),
                 )
@@ -518,24 +578,37 @@ object ScouterParser {
                     val items = value.optJSONArray("items") ?: JSONArray()
                     require(items.length() in 1..40) { "Checklist requires 1–40 items" }
                     UiNode.Checklist(
-                        id = id ?: error("A checklist requires a stable id"),
+                        id = (id ?: error("A checklist requires a stable id")).validElementId(),
                         style = style,
                         items = (0 until items.length()).map { index ->
                             val item = items.getJSONObject(index)
+                            val itemActionJson = item.optionalObject("action")
+                            val itemAction = itemActionJson
+                                ?.let(::parseAction)
+                                ?.takeUnless { it == ScouterAction.None }
                             ChecklistItem(
                                 id = item.requireString("id").also {
                                     require(it.matches(Regex("[A-Za-z0-9._-]{1,80}"))) { "Invalid checklist item id" }
                                 },
                                 label = item.requireString("label").take(240),
-                                checked = item.optBoolean("checked", false),
-                                enabled = item.optBoolean("enabled", true),
+                                checked = item.boolean("checked", false),
+                                enabled = item.boolean("enabled", true),
+                                action = itemAction,
+                                buttonLabel = itemAction?.let {
+                                    item.optString("buttonLabel").takeIf(String::isNotBlank)?.take(40)
+                                        ?: itemActionJson.optString("label")
+                                            ?.takeIf(String::isNotBlank)
+                                            ?.take(40)
+                                        ?: it.defaultButtonLabel()
+                                },
+                                actionIcon = itemAction?.let { parseIcon(item.opt("actionIcon")) },
                             )
                         },
-                        action = parseAction(value.optJSONObject("action")),
+                        action = parseAction(value.optionalObject("action")),
                     )
                 }
                 "link" -> UiNode.Link(
-                    id = id ?: error("A link requires a stable id"),
+                    id = (id ?: error("A link requires a stable id")).validElementId(),
                     style = style,
                     label = value.requireString("label").take(240),
                     url = value.httpUrl("url"),
@@ -545,7 +618,7 @@ object ScouterParser {
                 "linklist", "link_list" -> {
                     val links = value.optJSONArray("links") ?: JSONArray()
                     require(links.length() in 1..30) { "Link list requires 1–30 links" }
-                    val checkable = value.optBoolean("checkable", false)
+                    val checkable = value.boolean("checkable", false)
                     UiNode.LinkList(
                         id = id.also {
                             require(!checkable || it != null) { "A checkable link list requires a stable id" }
@@ -554,12 +627,12 @@ object ScouterParser {
                         links = (0 until links.length()).map { index ->
                             val link = links.getJSONObject(index)
                             LinkItem(
-                                id = link.requireString("id"),
+                                id = link.requireString("id").validElementId(),
                                 label = link.requireString("label").take(240),
                                 url = link.httpUrl("url"),
                                 description = link.optString("description").takeIf(String::isNotBlank)?.take(500),
                                 icon = parseIcon(link.opt("icon")),
-                                checked = link.optBoolean("checked", false),
+                                checked = link.boolean("checked", false),
                             )
                         },
                         checkable = checkable,
@@ -572,7 +645,7 @@ object ScouterParser {
                     checkable = false,
                 )
                 "addresslist", "address_list" -> {
-                    val checkable = value.optBoolean("checkable", false)
+                    val checkable = value.boolean("checkable", false)
                     UiNode.ActionList(
                         id = id.also {
                             require(!checkable || it != null) { "A checkable address list requires a stable id" }
@@ -589,7 +662,7 @@ object ScouterParser {
                     checkable = false,
                 )
                 "phonelist", "phone_list" -> {
-                    val checkable = value.optBoolean("checkable", false)
+                    val checkable = value.boolean("checkable", false)
                     UiNode.ActionList(
                         id = id.also {
                             require(!checkable || it != null) { "A checkable phone list requires a stable id" }
@@ -602,7 +675,7 @@ object ScouterParser {
                 "actionlist", "action_list" -> {
                     val items = value.optJSONArray("items") ?: JSONArray()
                     require(items.length() in 1..40) { "Action list requires 1–40 items" }
-                    val checkable = value.optBoolean("checkable", false)
+                    val checkable = value.boolean("checkable", false)
                     UiNode.ActionList(
                         id = id.also {
                             require(!checkable || it != null) { "A checkable action list requires a stable id" }
@@ -634,15 +707,15 @@ object ScouterParser {
                             "Invalid mapType"
                         }
                     },
-                    gestures = value.optBoolean("gestures", true),
-                    controls = value.optBoolean("controls", false),
+                    gestures = value.boolean("gestures", true),
+                    controls = value.boolean("controls", false),
                 )
                 "video" -> UiNode.Video(
                     id = id,
                     style = style,
                     url = value.httpUrl("url"),
-                    autoplay = value.optBoolean("autoplay", false),
-                    controls = value.optBoolean("controls", true),
+                    autoplay = value.boolean("autoplay", false),
+                    controls = value.boolean("controls", true),
                     height = value.float("height", 220f, 120f, 520f),
                 )
                 "web" -> UiNode.Web(
@@ -651,7 +724,7 @@ object ScouterParser {
                     html = value.requireString("html").also {
                         require(it.toByteArray().size <= 64 * 1024) { "Web HTML exceeds 64 KiB" }
                     },
-                    javaScriptEnabled = value.optBoolean("javaScriptEnabled", false),
+                    javaScriptEnabled = value.boolean("javaScriptEnabled", false),
                     height = value.float("height", 220f, 80f, 600f),
                 )
                 "divider" -> UiNode.Divider(id, style, value.optionalColor("color"))
@@ -660,43 +733,43 @@ object ScouterParser {
             }
         }
 
-        val themeJson = json.optJSONObject("theme") ?: JSONObject()
-        val presentationJson = json.optJSONObject("presentation") ?: JSONObject()
-        val notificationJson = json.optJSONObject("notification") ?: JSONObject()
+        val themeJson = json.optionalObject("theme") ?: JSONObject()
+        val presentationJson = json.optionalObject("presentation") ?: JSONObject()
+        val notificationJson = json.optionalObject("notification") ?: JSONObject()
         val id = (idOverride ?: json.optString("id")).trim()
         require(id.matches(Regex("[A-Za-z0-9._-]{1,80}"))) {
             "Document id must contain 1–80 letters, digits, dots, underscores or hyphens"
         }
+        require(json.has("version") && !json.isNull("version")) { "version is required" }
 
         return ScouterDocument(
-            version = json.optInt("version", 1).also { require(it == 1) { "Unsupported protocol version: $it" } },
+            version = json.int("version", 1, 1, 1),
             id = id,
             title = json.optString("title").takeIf(String::isNotBlank)?.take(120),
             titleIcon = parseIcon(json.opt("titleIcon")),
             notification = NotificationContent(
                 title = notificationJson.optString("title").takeIf(String::isNotBlank)?.take(120),
                 message = notificationJson.optString("message").takeIf(String::isNotBlank)?.take(240),
-                icon = notificationJson.optString("icon", "scouter").lowercase().also {
+                icon = notificationJson.optString("icon").takeIf(String::isNotBlank)?.lowercase()?.also {
                     require(it in NOTIFICATION_ICONS) { "Unknown notification icon: $it" }
                 },
             ),
             theme = ScouterTheme(
-                background = themeJson.color("background", "#101714"),
-                surface = themeJson.color("surface", "#18211D"),
-                text = themeJson.color("text", "#F3F8F5"),
-                muted = themeJson.color("muted", "#A8B5AD"),
-                accent = themeJson.color("accent", "#71C56E"),
-                danger = themeJson.color("danger", "#FF6B5F"),
-                cornerRadius = themeJson.float("cornerRadius", 20f, 12f, 48f),
+                background = themeJson.color("background", DEFAULT_BACKGROUND),
+                surface = themeJson.color("surface", DEFAULT_SURFACE),
+                text = themeJson.color("text", DEFAULT_TEXT),
+                muted = themeJson.color("muted", DEFAULT_MUTED),
+                accent = themeJson.color("accent", DEFAULT_ACCENT),
+                danger = themeJson.color("danger", DEFAULT_DANGER),
+                cornerRadius = themeJson.float("cornerRadius", 18f, 12f, 48f),
                 fontScale = themeJson.float("fontScale", 1f, .8f, 1.5f),
             ),
             presentation = Presentation(
-                dismissible = presentationJson.optBoolean("dismissible", true),
-                minimizable = presentationJson.optBoolean("minimizable", false),
-                showHandle = presentationJson.optBoolean("showHandle", true),
+                dismissible = presentationJson.boolean("dismissible", true),
+                minimizable = presentationJson.boolean("minimizable", false),
+                showHandle = presentationJson.boolean("showHandle", true),
                 maxHeight = presentationJson.float("maxHeight", .82f, .25f, .96f),
                 horizontalMargin = presentationJson.float("horizontalMargin", 12f, 0f, 40f),
-                stackOffset = presentationJson.float("stackOffset", 12f, 0f, 32f),
                 radius = presentationJson.opt("radius")
                     ?.takeUnless { it == JSONObject.NULL }
                     ?.let(::parseCorners),
@@ -707,7 +780,7 @@ object ScouterParser {
 
     private fun parseStyle(json: JSONObject?): UiStyle {
         if (json == null) return UiStyle()
-        val border = json.optJSONObject("border")
+        val border = json.optionalObject("border")
         val width = json.opt("width")?.takeUnless { it == JSONObject.NULL }?.toString()
         require(
             width == null ||
@@ -727,7 +800,9 @@ object ScouterParser {
             borderColor = (border?.optionalColor("color") ?: json.optionalColor("borderColor")),
             borderWidth = border?.float("width", 1f, 0f, 24f)
                 ?: json.float("borderWidth", 0f, 0f, 24f),
-            radius = parseCorners(json.opt("radius")),
+            radius = json.opt("radius")
+                ?.takeUnless { it == JSONObject.NULL }
+                ?.let(::parseCorners),
             opacity = json.float("opacity", 1f, 0f, 1f),
             weight = json.optionalFloat("weight", .01f, 100f),
             aspectRatio = json.optionalFloat("aspectRatio", .1f, 10f),
@@ -756,7 +831,11 @@ object ScouterParser {
 
     private fun parseInsets(value: Any?): Insets {
         if (value == null || value == JSONObject.NULL) return Insets()
-        if (value is Number) return Insets(value.toFloat(), value.toFloat(), value.toFloat(), value.toFloat())
+        if (value is Number) {
+            val inset = value.toFloat()
+            require(inset.isFinite() && inset in 0f..240f) { "Insets must be between 0 and 240" }
+            return Insets(inset, inset, inset, inset)
+        }
         require(value is JSONObject) { "Insets must be a number or object" }
         val horizontal = value.float("horizontal", 0f, 0f, 240f)
         val vertical = value.float("vertical", 0f, 0f, 240f)
@@ -771,7 +850,8 @@ object ScouterParser {
     private fun parseCorners(value: Any?): Corners {
         if (value == null || value == JSONObject.NULL) return Corners()
         if (value is Number) {
-            val radius = value.toFloat().coerceIn(0f, 160f)
+            val radius = value.toFloat()
+            require(radius.isFinite() && radius in 0f..160f) { "Radius must be between 0 and 160" }
             return Corners(radius, radius, radius, radius)
         }
         require(value is JSONObject) { "Radius must be a number or object" }
@@ -795,12 +875,12 @@ object ScouterParser {
                     action = json.requireString("action"),
                     packageName = json.optString("package").takeIf(String::isNotBlank),
                     extras = extras,
-                    closeAfter = json.optBoolean("closeAfter", false),
+                    closeAfter = json.boolean("closeAfter", false),
                 )
             }
             "openurl", "open_url" -> ScouterAction.OpenUrl(
-                url = json.requireString("url"),
-                closeAfter = json.optBoolean("closeAfter", false),
+                url = json.httpUrl("url"),
+                closeAfter = json.boolean("closeAfter", false),
             )
             "navigate" -> {
                 val address = json.optString("address").takeIf(String::isNotBlank)?.take(500)
@@ -817,12 +897,33 @@ object ScouterParser {
                     latitude = latitude,
                     longitude = longitude,
                     chooserTitle = json.optString("chooserTitle").takeIf(String::isNotBlank)?.take(80),
-                    closeAfter = json.optBoolean("closeAfter", false),
+                    closeAfter = json.boolean("closeAfter", false),
                 )
+            }
+            "route", "navigateroute", "navigate_route" -> {
+                val values = json.optJSONArray("stops") ?: JSONArray()
+                require(values.length() in 1..10) { "navigate_route requires 1–10 ordered stops" }
+                val route = ScouterAction.NavigateRoute(
+                    origin = json.opt("origin")
+                        ?.takeUnless { it == JSONObject.NULL }
+                        ?.let(::parseRouteLocation),
+                    stops = (0 until values.length()).map { parseRouteLocation(values.get(it)) },
+                    travelMode = json.optString("travelMode", "driving").lowercase().also {
+                        require(it in setOf("driving", "walking", "bicycling", "two-wheeler", "transit")) {
+                            "Invalid route travelMode"
+                        }
+                    },
+                    chooserTitle = json.optString("chooserTitle").takeIf(String::isNotBlank)?.take(80),
+                    closeAfter = json.boolean("closeAfter", false),
+                )
+                require(route.mapsUrl().length <= 2_048) {
+                    "navigate_route exceeds the Google Maps URL limit of 2048 characters"
+                }
+                route
             }
             "dial" -> ScouterAction.Dial(
                 phoneNumber = json.requireString("phoneNumber").validPhoneNumber(),
-                closeAfter = json.optBoolean("closeAfter", false),
+                closeAfter = json.boolean("closeAfter", false),
             )
             "none" -> ScouterAction.None
             else -> error("Unknown action type: ${json.optString("type")}")
@@ -860,10 +961,28 @@ object ScouterParser {
                 latitude = latitude,
                 longitude = longitude,
                 chooserTitle = value.optString("chooserTitle").takeIf(String::isNotBlank)?.take(80),
-                closeAfter = value.optBoolean("closeAfter", false),
+                closeAfter = value.boolean("closeAfter", false),
             ),
-            checked = value.optBoolean("checked", false),
+            checked = value.boolean("checked", false),
         )
+    }
+
+    private fun parseRouteLocation(value: Any): RouteLocation {
+        if (value is String) {
+            require(value.isNotBlank()) { "Route address cannot be blank" }
+            return RouteLocation(value.take(500), null, null)
+        }
+        require(value is JSONObject) { "Route locations must be an address string or object" }
+        val address = value.optString("address").takeIf(String::isNotBlank)?.take(500)
+        val latitude = value.optionalDouble("latitude", -90.0, 90.0)
+        val longitude = value.optionalDouble("longitude", -180.0, 180.0)
+        require((latitude == null) == (longitude == null)) {
+            "Route latitude and longitude must be provided together"
+        }
+        require((address != null) xor (latitude != null)) {
+            "Route locations require either address or latitude and longitude"
+        }
+        return RouteLocation(address, latitude, longitude)
     }
 
     private fun parsePhoneItem(value: JSONObject, id: String): ActionItem {
@@ -875,8 +994,8 @@ object ScouterParser {
             detail = number,
             buttonLabel = value.optString("buttonLabel", "Dial").take(40),
             icon = parseIcon(value.opt("icon")),
-            action = ScouterAction.Dial(number, value.optBoolean("closeAfter", false)),
-            checked = value.optBoolean("checked", false),
+            action = ScouterAction.Dial(number, value.boolean("closeAfter", false)),
+            checked = value.boolean("checked", false),
         )
     }
 
@@ -889,8 +1008,8 @@ object ScouterParser {
             detail = null,
             buttonLabel = value.optString("buttonLabel", "Open").take(40),
             icon = parseIcon(value.opt("icon")),
-            action = ScouterAction.OpenUrl(url, value.optBoolean("closeAfter", false)),
-            checked = value.optBoolean("checked", false),
+            action = ScouterAction.OpenUrl(url, value.boolean("closeAfter", false)),
+            checked = value.boolean("checked", false),
         )
     }
 
@@ -916,16 +1035,37 @@ object ScouterParser {
     }
 
     private fun JSONObject.children(): List<JSONObject> {
-        val array = optJSONArray("children") ?: JSONArray()
+        require(has("children") && !isNull("children")) { "children is required" }
+        val array = getJSONArray("children")
         return (0 until array.length()).map { array.getJSONObject(it) }
     }
 
     private fun JSONObject.requireString(name: String): String =
-        getString(name).also { require(it.isNotBlank()) { "$name cannot be blank" } }
+        requireNotNull(get(name) as? String) { "$name must be a string" }
+            .also { require(it.isNotBlank()) { "$name cannot be blank" } }
+
+    private fun JSONObject.optionalObject(name: String): JSONObject? {
+        if (!has(name)) return null
+        require(!isNull(name)) { "$name cannot be null" }
+        return requireNotNull(get(name) as? JSONObject) { "$name must be an object" }
+    }
+
+    private fun JSONObject.boolean(name: String, fallback: Boolean): Boolean {
+        if (!has(name)) return fallback
+        require(!isNull(name)) { "$name cannot be null" }
+        return requireNotNull(get(name) as? Boolean) { "$name must be a boolean" }
+    }
 
     private fun JSONObject.optionalDouble(name: String, minimum: Double, maximum: Double): Double? =
-        if (!has(name) || isNull(name)) null else getDouble(name).also {
-            require(it in minimum..maximum) { "$name must be between $minimum and $maximum" }
+        if (!has(name)) {
+            null
+        } else {
+            require(!isNull(name)) { "$name cannot be null" }
+            val value = requireNotNull(get(name) as? Number) { "$name must be a number" }.toDouble()
+            require(value.isFinite() && value in minimum..maximum) {
+                "$name must be between $minimum and $maximum"
+            }
+            value
         }
 
     private fun JSONObject.httpUrl(name: String): String =
@@ -935,14 +1075,34 @@ object ScouterParser {
             }
         }
 
-    private fun JSONObject.float(name: String, fallback: Float, min: Float, max: Float): Float =
-        optDouble(name, fallback.toDouble()).toFloat().coerceIn(min, max)
+    private fun JSONObject.float(name: String, fallback: Float, min: Float, max: Float): Float {
+        if (!has(name)) return fallback
+        require(!isNull(name)) { "$name cannot be null" }
+        val value = requireNotNull(get(name) as? Number) { "$name must be a number" }.toFloat()
+        require(value.isFinite() && value in min..max) { "$name must be between $min and $max" }
+        return value
+    }
 
-    private fun JSONObject.int(name: String, fallback: Int, min: Int, max: Int): Int =
-        optInt(name, fallback).coerceIn(min, max)
+    private fun JSONObject.int(name: String, fallback: Int, min: Int, max: Int): Int {
+        if (!has(name)) return fallback
+        require(!isNull(name)) { "$name cannot be null" }
+        val number = requireNotNull(get(name) as? Number) { "$name must be an integer" }
+        val value = number.toDouble()
+        require(value.isFinite() && value % 1.0 == 0.0 && value in min.toDouble()..max.toDouble()) {
+            "$name must be an integer between $min and $max"
+        }
+        return value.toInt()
+    }
 
     private fun JSONObject.optionalFloat(name: String, min: Float, max: Float): Float? =
-        if (has(name) && !isNull(name)) getDouble(name).toFloat().coerceIn(min, max) else null
+        if (!has(name)) {
+            null
+        } else {
+            require(!isNull(name)) { "$name cannot be null" }
+            val value = requireNotNull(get(name) as? Number) { "$name must be a number" }.toFloat()
+            require(value.isFinite() && value in min..max) { "$name must be between $min and $max" }
+            value
+        }
 
     private fun JSONObject.optionalColor(name: String): String? =
         optString(name).takeIf(String::isNotBlank)?.also {

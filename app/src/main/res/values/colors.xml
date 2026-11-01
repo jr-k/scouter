@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand ink: shared by the launcher icon, the splash screen and the system bars. -->
+    <color name="scouter_ink">#07100D</color>
+    <color name="scouter_ink_raised">#101B16</color>
+    <color name="scouter_accent">#71C56E</color>
+</resources>

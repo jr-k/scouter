@@ -2,25 +2,146 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scouter.app/schema/v1",
   "title": "Scouter document",
+  "description": "Canonical, strict contract for a Scouter protocol v1 native Android overlay. The complete UTF-8 JSON payload is limited to 256 KiB; the content tree is limited to 120 nodes and 12 nested levels.",
   "type": "object",
   "required": ["version", "id", "content"],
   "properties": {
-    "version": {"const": 1},
-    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-    "title": {"type": "string", "maxLength": 120},
-    "titleIcon": {"$ref": "#/$defs/icon"},
-    "notification": {"$ref": "#/$defs/notification"},
-    "theme": {"$ref": "#/$defs/theme"},
-    "presentation": {"$ref": "#/$defs/presentation"},
-    "content": {"$ref": "#/$defs/node"}
+    "version": {
+      "const": 1,
+      "description": "Protocol version. The only supported value is 1."
+    },
+    "id": {
+      "$ref": "#/$defs/elementId",
+      "description": "Stable document identity. Re-sending the same ID replaces and selects the existing visible or queued view."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Optional title shown in the sheet header and used as the notification title when notification.title is absent."
+    },
+    "titleIcon": {
+      "$ref": "#/$defs/icon",
+      "default": null,
+      "description": "Optional semantic icon shown beside the sheet title and reused for notifications when notification.icon is absent."
+    },
+    "notification": {
+      "$ref": "#/$defs/notification",
+      "default": {},
+      "description": "Optional text and semantic icon for minimized or lock-screen notifications."
+    },
+    "theme": {
+      "$ref": "#/$defs/theme",
+      "default": {},
+      "description": "Optional document-wide visual theme."
+    },
+    "presentation": {
+      "$ref": "#/$defs/presentation",
+      "default": {},
+      "description": "Sheet lifecycle controls. Set minimizable to true explicitly when the card must display a Minimize action."
+    },
+    "content": {
+      "$ref": "#/$defs/node",
+      "description": "Root of the native UI component tree."
+    }
   },
   "additionalProperties": false,
+  "examples": [
+    {
+      "version": 1,
+      "id": "delivery-42",
+      "title": "Delivery",
+      "titleIcon": "location",
+      "notification": {
+        "title": "Delivery update",
+        "message": "Two stops remaining",
+        "icon": "navigation"
+      },
+      "presentation": {
+        "dismissible": true,
+        "minimizable": true
+      },
+      "content": {
+        "type": "column",
+        "gap": 12,
+        "children": [
+          {
+            "type": "text",
+            "value": "Two stops remaining",
+            "variant": "title"
+          },
+          {
+            "type": "checklist",
+            "id": "stops",
+            "items": [
+              {
+                "id": "stop-1",
+                "label": "12 rue de Charonne, Paris",
+                "action": {
+                  "type": "navigate",
+                  "address": "12 rue de Charonne, Paris"
+                },
+                "buttonLabel": "Navigate",
+                "actionIcon": "directions"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "version": 1,
+      "id": "multi-stop-route",
+      "title": "Today's stops",
+      "titleIcon": "directions",
+      "presentation": {
+        "dismissible": true,
+        "minimizable": true
+      },
+      "content": {
+        "type": "column",
+        "gap": 12,
+        "children": [
+          {
+            "type": "address_list",
+            "addresses": [
+              {"id": "pickup", "label": "Pickup", "address": "Gare du Nord, Paris"},
+              {"id": "customer", "label": "Customer", "address": "12 rue de Charonne, Paris"},
+              {"id": "depot", "label": "Depot", "address": "Place de la Nation, Paris"}
+            ]
+          },
+          {
+            "type": "button",
+            "id": "start-route",
+            "label": "Start complete route",
+            "icon": "directions",
+            "action": {
+              "type": "navigate_route",
+              "stops": [
+                "Gare du Nord, Paris",
+                "12 rue de Charonne, Paris",
+                "Place de la Nation, Paris"
+              ],
+              "travelMode": "driving"
+            }
+          }
+        ]
+      }
+    }
+  ],
   "$defs": {
     "color": {
       "type": "string",
-      "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+      "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+      "description": "Hex color in #RRGGBB or #RRGGBBAA form; the optional final byte is alpha."
+    },
+    "elementId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,80}$",
+      "description": "Stable semantic ID: 1–80 ASCII letters, digits, dots, underscores, or hyphens."
     },
     "icon": {
+      "description": "A semantic Material icon. A string uses all defaults; an object controls placement, tint, size, and spacing; null displays no icon.",
       "oneOf": [
         {"type": "null"},
         {
@@ -45,10 +166,29 @@
                 "unlock", "warning"
               ]
             },
-            "position": {"enum": ["start", "end"]},
-            "color": {"$ref": "#/$defs/color"},
-            "size": {"type": "number", "minimum": 8, "maximum": 48},
-            "spacing": {"type": "number", "minimum": 0, "maximum": 24}
+            "position": {
+              "enum": ["start", "end"],
+              "default": "start",
+              "description": "Places the icon before or after adjacent text."
+            },
+            "color": {
+              "$ref": "#/$defs/color",
+              "description": "Optional icon tint. By default the surrounding content color is used."
+            },
+            "size": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 48,
+              "default": 20,
+              "description": "Icon size in density-independent pixels."
+            },
+            "spacing": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24,
+              "default": 8,
+              "description": "Space in density-independent pixels between the icon and text."
+            }
           },
           "additionalProperties": false
         }
@@ -56,11 +196,23 @@
     },
     "notification": {
       "type": "object",
+      "description": "Overrides notification content. Missing values are derived from the document title, title icon, and first useful content text.",
       "properties": {
-        "title": {"type": "string", "maxLength": 120},
-        "message": {"type": "string", "maxLength": 240},
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Notification title. Falls back to document.title, then content, then \"Scouter\"."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Notification body. Falls back to the first useful content text that differs from the title."
+        },
         "icon": {
-          "enum": ["scouter", "info", "warning", "message", "navigation", "phone", "task"]
+          "enum": ["scouter", "info", "warning", "message", "navigation", "phone", "task"],
+          "description": "Semantic notification glyph. Falls back to titleIcon, then the Scouter app glyph."
         }
       },
       "additionalProperties": false
@@ -68,31 +220,71 @@
     "theme": {
       "type": "object",
       "properties": {
-        "background": {"$ref": "#/$defs/color"},
-        "surface": {"$ref": "#/$defs/color"},
-        "text": {"$ref": "#/$defs/color"},
-        "muted": {"$ref": "#/$defs/color"},
-        "accent": {"$ref": "#/$defs/color"},
-        "danger": {"$ref": "#/$defs/color"},
-        "cornerRadius": {"type": "number", "minimum": 12, "maximum": 48},
-        "fontScale": {"type": "number", "minimum": 0.8, "maximum": 1.5}
+        "background": {"$ref": "#/$defs/color", "default": "#1C1C1E"},
+        "surface": {"$ref": "#/$defs/color", "default": "#29292C"},
+        "text": {"$ref": "#/$defs/color", "default": "#FAFAFC"},
+        "muted": {"$ref": "#/$defs/color", "default": "#A9A9B0"},
+        "accent": {"$ref": "#/$defs/color", "default": "#5B9CFF"},
+        "danger": {"$ref": "#/$defs/color", "default": "#FF625C"},
+        "cornerRadius": {
+          "type": "number",
+          "minimum": 12,
+          "maximum": 48,
+          "default": 18,
+          "description": "Default sheet corner radius in density-independent pixels. Individual components use their own defaults unless style.radius overrides them."
+        },
+        "fontScale": {
+          "type": "number",
+          "minimum": 0.8,
+          "maximum": 1.5,
+          "default": 1,
+          "description": "Multiplier applied to text sizes."
+        }
       },
       "additionalProperties": false
     },
     "presentation": {
       "type": "object",
+      "description": "Controls which sheet actions are available. By default Close is enabled and Minimize is disabled.",
       "properties": {
-        "dismissible": {"type": "boolean"},
-        "minimizable": {"type": "boolean"},
-        "showHandle": {"type": "boolean"},
-        "maxHeight": {"type": "number", "minimum": 0.25, "maximum": 0.96},
-        "horizontalMargin": {"type": "number", "minimum": 0, "maximum": 40},
-        "stackOffset": {"type": "number", "minimum": 0, "maximum": 32},
-        "radius": {"$ref": "#/$defs/radius"}
+        "dismissible": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, displays the Close action. Defaults to true."
+        },
+        "minimizable": {
+          "type": "boolean",
+          "default": false,
+          "description": "MUST be true to display the Minimize action and permit user- or preference-driven minimization. Omitting it disables those paths. Locked-screen delivery is queued independently of this flag. Every notification path requires Android notification permission."
+        },
+        "showHandle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Requests the pull handle. It is only rendered when the user's configured pull-down action is allowed by dismissible or minimizable."
+        },
+        "maxHeight": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 0.96,
+          "default": 0.82,
+          "description": "Maximum sheet height as a fraction of the available screen height."
+        },
+        "horizontalMargin": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40,
+          "default": 12,
+          "description": "Sheet margin from each horizontal screen edge in density-independent pixels."
+        },
+        "radius": {
+          "$ref": "#/$defs/radius",
+          "description": "Optional sheet corner radii. When absent, theme.cornerRadius is used."
+        }
       },
       "additionalProperties": false
     },
     "insets": {
+      "description": "Insets in density-independent pixels. A number applies to all sides. In object form, side values override horizontal or vertical shorthands.",
       "oneOf": [
         {"type": "number", "minimum": 0, "maximum": 240},
         {
@@ -110,6 +302,7 @@
       ]
     },
     "radius": {
+      "description": "Corner radii in density-independent pixels. A number applies to all corners; named corners override all in object form.",
       "oneOf": [
         {"type": "number", "minimum": 0, "maximum": 160},
         {
@@ -127,12 +320,14 @@
     },
     "vibrateSequence": {
       "type": "array",
+      "default": [],
       "maxItems": 20,
       "items": {"type": "integer", "minimum": 0, "maximum": 5000},
       "description": "Android waveform durations in milliseconds: delay, vibrate, pause, vibrate, and so on. Maximum total duration: 15000 ms."
     },
     "style": {
       "type": "object",
+      "description": "Common layout and decoration applied to any component. Numeric dimensions are density-independent pixels.",
       "properties": {
         "width": {
           "oneOf": [
@@ -143,39 +338,121 @@
         "height": {"type": "number", "minimum": 0, "maximum": 2000},
         "minHeight": {"type": "number", "minimum": 0, "maximum": 2000},
         "maxHeight": {"type": "number", "minimum": 0, "maximum": 2000},
-        "weight": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "Relative width when this component is a direct child of a row. It has no effect in other parents."
+        },
         "aspectRatio": {"type": "number", "minimum": 0.1, "maximum": 10},
-        "padding": {"$ref": "#/$defs/insets"},
-        "margin": {"$ref": "#/$defs/insets"},
+        "padding": {"$ref": "#/$defs/insets", "default": 0},
+        "margin": {"$ref": "#/$defs/insets", "default": 0},
         "background": {"$ref": "#/$defs/color"},
-        "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
         "radius": {"$ref": "#/$defs/radius"},
         "border": {
           "type": "object",
+          "description": "Border decoration. If the object exists and width is omitted, width defaults to 1 dp.",
           "properties": {
-            "width": {"type": "number", "minimum": 0, "maximum": 24},
+            "width": {"type": "number", "minimum": 0, "maximum": 24, "default": 1},
             "color": {"$ref": "#/$defs/color"}
           },
           "additionalProperties": false
         },
-        "borderWidth": {"type": "number", "minimum": 0, "maximum": 24},
-        "borderColor": {"$ref": "#/$defs/color"}
+        "borderWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 24,
+          "default": 0,
+          "deprecated": true,
+          "description": "Legacy flat alias for border.width. Prefer border.width."
+        },
+        "borderColor": {
+          "$ref": "#/$defs/color",
+          "deprecated": true,
+          "description": "Legacy flat alias for border.color. Prefer border.color."
+        }
       },
       "additionalProperties": false
     },
-    "base": {
-      "type": "object",
-      "properties": {
-        "id": {"type": "string"},
-        "style": {"$ref": "#/$defs/style"}
-      }
+    "routeLocation": {
+      "description": "One route location, either a non-blank address string or an object containing exactly one address or latitude/longitude pair.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        {
+          "type": "object",
+          "properties": {
+            "address": {"type": "string", "minLength": 1, "maxLength": 500},
+            "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+            "longitude": {"type": "number", "minimum": -180, "maximum": 180}
+          },
+          "oneOf": [
+            {"required": ["address"]},
+            {"required": ["latitude", "longitude"]}
+          ],
+          "dependentRequired": {
+            "latitude": ["longitude"],
+            "longitude": ["latitude"]
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "action": {
+      "description": "Action performed by an interactive component. If action is omitted, the component remains visible but performs no external action.",
       "oneOf": [
         {
           "type": "object",
           "required": ["type"],
-          "properties": {"type": {"const": "close"}},
+          "properties": {
+            "type": {
+              "const": "close",
+              "description": "Closes the originating document and removes its notification."
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 40,
+              "deprecated": true,
+              "description": "Legacy checklist-item button label. Prefer the checklist item's buttonLabel."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "Opens an ordered multi-stop route in Google Maps. When origin is omitted, routing begins at the device's current location. The final stops entry is the destination and earlier entries are waypoints.",
+          "required": ["type", "stops"],
+          "properties": {
+            "type": {"enum": ["navigate_route", "navigateRoute", "route"]},
+            "origin": {"$ref": "#/$defs/routeLocation"},
+            "stops": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "items": {"$ref": "#/$defs/routeLocation"},
+              "description": "Ordered locations to visit. The last entry is the destination; preceding entries are waypoints. Google Maps support varies by platform and may limit mobile-browser fallback to three waypoints."
+            },
+            "travelMode": {
+              "enum": ["driving", "walking", "bicycling", "two-wheeler", "transit"],
+              "default": "driving"
+            },
+            "chooserTitle": {"type": "string", "maxLength": 80},
+            "label": {
+              "type": "string",
+              "maxLength": 40,
+              "deprecated": true,
+              "description": "Legacy checklist-item button label. Prefer the checklist item's buttonLabel."
+            },
+            "closeAfter": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, closes the document after Android successfully opens the route. Otherwise it remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
+            }
+          },
           "additionalProperties": false
         },
         {
@@ -184,7 +461,17 @@
           "properties": {
             "type": {"enum": ["open_url", "openUrl"]},
             "url": {"type": "string", "pattern": "^https?://"},
-            "closeAfter": {"type": "boolean"}
+            "label": {
+              "type": "string",
+              "maxLength": 40,
+              "deprecated": true,
+              "description": "Legacy checklist-item button label. Prefer the checklist item's buttonLabel."
+            },
+            "closeAfter": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, closes the document after Android successfully opens the URL. Otherwise it remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
+            }
           },
           "additionalProperties": false
         },
@@ -194,12 +481,27 @@
           "properties": {
             "type": {"const": "broadcast"},
             "action": {"type": "string", "minLength": 1},
-            "package": {"type": "string"},
+            "label": {
+              "type": "string",
+              "maxLength": 40,
+              "deprecated": true,
+              "description": "Legacy checklist-item button label. Prefer the checklist item's buttonLabel."
+            },
+            "package": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional target Android package. Set it to avoid exposing callbacks to unrelated apps."
+            },
             "extras": {
               "type": "object",
+              "description": "Additional values converted to string extras. Scouter also adds scouter_id, element_id, event, and value when available.",
               "additionalProperties": {"type": ["string", "number", "boolean"]}
             },
-            "closeAfter": {"type": "boolean"}
+            "closeAfter": {
+              "type": "boolean",
+              "default": false,
+              "description": "Closes the originating document after sending the callback."
+            }
           },
           "additionalProperties": false
         },
@@ -211,16 +513,27 @@
             "address": {"type": "string", "minLength": 1, "maxLength": 500},
             "latitude": {"type": "number", "minimum": -90, "maximum": 90},
             "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+            "label": {
+              "type": "string",
+              "maxLength": 40,
+              "deprecated": true,
+              "description": "Legacy checklist-item button label. Prefer the checklist item's buttonLabel."
+            },
             "chooserTitle": {"type": "string", "maxLength": 80},
             "closeAfter": {
               "type": "boolean",
-              "description": "Close after navigation instead of the default automatic minimization."
+              "default": false,
+              "description": "When true, closes the document after Android successfully opens navigation. Otherwise it remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
             }
           },
           "anyOf": [
             {"required": ["address"]},
             {"required": ["latitude", "longitude"]}
           ],
+          "dependentRequired": {
+            "latitude": ["longitude"],
+            "longitude": ["latitude"]
+          },
           "additionalProperties": false
         },
         {
@@ -229,7 +542,17 @@
           "properties": {
             "type": {"const": "dial"},
             "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
-            "closeAfter": {"type": "boolean"}
+            "label": {
+              "type": "string",
+              "maxLength": 40,
+              "deprecated": true,
+              "description": "Legacy checklist-item button label. Prefer the checklist item's buttonLabel."
+            },
+            "closeAfter": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, closes the document after Android successfully opens the dialer. Otherwise it remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
+            }
           },
           "additionalProperties": false
         }
@@ -264,189 +587,332 @@
         {"$ref": "#/$defs/spacer"}
       ]
     },
-    "containerProperties": {
-      "type": "object",
-      "properties": {
-        "id": {"type": "string"},
-        "style": {"$ref": "#/$defs/style"},
-        "gap": {"type": "number", "minimum": 0, "maximum": 64},
-        "align": {"type": "string"},
-        "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
-      }
-    },
     "column": {
-      "allOf": [
-        {"$ref": "#/$defs/containerProperties"},
-        {"type": "object", "required": ["type", "children"], "properties": {"type": {"const": "column"}}}
-      ]
+      "type": "object",
+      "description": "Lays children out vertically.",
+      "required": ["type", "children"],
+      "properties": {
+        "type": {"const": "column"},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "gap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 12,
+          "description": "Vertical space between children in density-independent pixels."
+        },
+        "align": {
+          "enum": ["start", "center", "end"],
+          "default": "start",
+          "description": "Horizontal alignment of children."
+        },
+        "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
+      },
+      "additionalProperties": false
     },
     "row": {
-      "allOf": [
-        {"$ref": "#/$defs/containerProperties"},
-        {"type": "object", "required": ["type", "children"], "properties": {"type": {"const": "row"}}}
-      ]
+      "type": "object",
+      "description": "Lays children out horizontally. Children with style.weight share the remaining width.",
+      "required": ["type", "children"],
+      "properties": {
+        "type": {"const": "row"},
+        "id": {"type": "string", "minLength": 1},
+        "style": {"$ref": "#/$defs/style"},
+        "gap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 10,
+          "description": "Horizontal space between children in density-independent pixels."
+        },
+        "align": {
+          "enum": ["top", "center", "bottom"],
+          "default": "center",
+          "description": "Vertical alignment of children."
+        },
+        "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
+      },
+      "additionalProperties": false
     },
     "grid": {
       "type": "object",
-      "required": ["type", "columns", "children"],
+      "description": "Places children in a fixed-column grid.",
+      "required": ["type", "children"],
       "properties": {
         "type": {"const": "grid"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "columns": {"type": "integer", "minimum": 1, "maximum": 6},
-        "gap": {"type": "number", "minimum": 0, "maximum": 64},
-        "horizontalGap": {"type": "number", "minimum": 0, "maximum": 64},
-        "verticalGap": {"type": "number", "minimum": 0, "maximum": 64},
+        "columns": {"type": "integer", "minimum": 1, "maximum": 6, "default": 2},
+        "gap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 12,
+          "description": "Fallback for horizontalGap and verticalGap."
+        },
+        "horizontalGap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64,
+          "description": "Horizontal gap in dp; defaults to gap, or 12 when gap is absent."
+        },
+        "verticalGap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64,
+          "description": "Vertical gap in dp; defaults to gap, or 12 when gap is absent."
+        },
         "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
-      }
+      },
+      "additionalProperties": false
     },
     "box": {
       "type": "object",
+      "description": "Positions one child inside an alignment box.",
       "required": ["type", "child"],
       "properties": {
         "type": {"const": "box"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "align": {"type": "string"},
+        "align": {
+          "enum": [
+            "center",
+            "topStart", "top_start", "top", "topCenter", "top_center", "topEnd", "top_end",
+            "start", "centerStart", "center_start", "end", "centerEnd", "center_end",
+            "bottomStart", "bottom_start", "bottom", "bottomCenter", "bottom_center",
+            "bottomEnd", "bottom_end"
+          ],
+          "default": "center"
+        },
         "child": {"$ref": "#/$defs/node"}
-      }
+      },
+      "additionalProperties": false
     },
     "card": {
       "type": "object",
+      "description": "Decorative surface around one child.",
       "required": ["type", "child"],
       "properties": {
         "type": {"const": "card"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "tone": {"enum": ["accent", "danger", "surface", "background"]},
-        "padding": {"type": "number", "minimum": 0, "maximum": 48},
+        "tone": {"enum": ["accent", "danger", "surface", "background"], "default": "surface"},
+        "padding": {"type": "number", "minimum": 0, "maximum": 48, "default": 16},
         "child": {"$ref": "#/$defs/node"}
-      }
+      },
+      "additionalProperties": false
     },
     "text": {
       "type": "object",
+      "description": "Native text with semantic typography and optional icon.",
       "required": ["type", "value"],
       "properties": {
         "type": {"const": "text"},
-        "id": {"type": "string"},
-        "style": {"$ref": "#/$defs/style"},
-        "value": {"type": "string", "maxLength": 8000},
-        "variant": {"enum": ["display", "title", "subtitle", "body", "caption", "mono"]},
+        "id": {"type": "string", "minLength": 1},
+        "style": {
+          "oneOf": [
+            {"$ref": "#/$defs/style"},
+            {
+              "enum": ["display", "title", "subtitle", "body", "caption", "mono"],
+              "deprecated": true,
+              "description": "Legacy typography alias. Prefer variant and reserve style for the style object."
+            }
+          ]
+        },
+        "value": {"type": "string", "minLength": 1, "maxLength": 8000},
+        "variant": {
+          "enum": ["display", "title", "subtitle", "body", "caption", "mono"],
+          "default": "body"
+        },
+        "textStyle": {
+          "enum": ["display", "title", "subtitle", "body", "caption", "mono"],
+          "deprecated": true,
+          "description": "Legacy alias for variant."
+        },
         "color": {"$ref": "#/$defs/color"},
-        "fontColor": {"$ref": "#/$defs/color"},
+        "fontColor": {
+          "$ref": "#/$defs/color",
+          "deprecated": true,
+          "description": "Legacy alias for color."
+        },
+        "textColor": {
+          "$ref": "#/$defs/color",
+          "deprecated": true,
+          "description": "Legacy alias for color."
+        },
         "fontSize": {"type": "number", "minimum": 8, "maximum": 96},
-        "fontWeight": {"type": ["string", "number"]},
+        "fontWeight": {
+          "oneOf": [
+            {
+              "enum": [
+                "thin", "extralight", "light", "normal", "medium",
+                "semibold", "bold", "extrabold", "black"
+              ]
+            },
+            {"enum": [100, 200, 300, 400, 500, 600, 700, 800, 900]}
+          ]
+        },
         "lineHeight": {"type": "number", "minimum": 8, "maximum": 120},
         "letterSpacing": {"type": "number", "minimum": -8, "maximum": 32},
-        "fontFamily": {"enum": ["default", "serif", "mono", "monospace", "cursive"]},
-        "italic": {"type": "boolean"},
+        "fontFamily": {
+          "enum": ["default", "serif", "mono", "monospace", "cursive"],
+          "default": "default"
+        },
+        "italic": {"type": "boolean", "default": false},
         "icon": {"$ref": "#/$defs/icon"},
-        "align": {"enum": ["start", "center", "end", "left", "right"]},
-        "maxLines": {"type": "integer", "minimum": 1, "maximum": 100}
-      }
+        "align": {
+          "enum": ["start", "center", "end", "left", "right"],
+          "default": "start"
+        },
+        "maxLines": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}
+      },
+      "additionalProperties": false
     },
     "button": {
       "type": "object",
+      "description": "Tap button. If action is omitted, taps are accepted but intentionally perform no action.",
       "required": ["type", "id", "label"],
       "properties": {
         "type": {"const": "button"},
-        "id": {"type": "string", "minLength": 1},
-        "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 120},
-        "variant": {"enum": ["primary", "secondary", "ghost", "danger"]},
+        "id": {"$ref": "#/$defs/elementId"},
+        "style": {
+          "oneOf": [
+            {"$ref": "#/$defs/style"},
+            {
+              "enum": ["primary", "secondary", "ghost", "danger"],
+              "deprecated": true,
+              "description": "Legacy visual variant alias. Prefer variant."
+            }
+          ]
+        },
+        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "variant": {
+          "enum": ["primary", "secondary", "ghost", "danger"],
+          "default": "primary"
+        },
+        "buttonStyle": {
+          "enum": ["primary", "secondary", "ghost", "danger"],
+          "deprecated": true,
+          "description": "Legacy alias for variant."
+        },
         "color": {"$ref": "#/$defs/color"},
         "pressedColor": {"$ref": "#/$defs/color"},
         "textColor": {"$ref": "#/$defs/color"},
-        "pressedScale": {"type": "number", "minimum": 0.9, "maximum": 1},
-        "enabled": {"type": "boolean"},
+        "pressedScale": {"type": "number", "minimum": 0.9, "maximum": 1, "default": 0.975},
+        "enabled": {"type": "boolean", "default": true},
         "icon": {"$ref": "#/$defs/icon"},
         "action": {"$ref": "#/$defs/action"}
-      }
+      },
+      "additionalProperties": false
     },
     "holdButton": {
       "type": "object",
+      "description": "Press-and-hold confirmation control. Releasing before durationMs cancels completion.",
       "required": ["type", "id", "label"],
       "properties": {
         "type": {"enum": ["hold_button", "holdButton"]},
-        "id": {"type": "string", "minLength": 1},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 120},
-        "completedLabel": {"type": "string", "maxLength": 120},
-        "durationMs": {"type": "integer", "minimum": 250, "maximum": 15000},
+        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "completedLabel": {"type": "string", "minLength": 1, "maxLength": 120},
+        "durationMs": {"type": "integer", "minimum": 250, "maximum": 15000, "default": 1200},
         "color": {"$ref": "#/$defs/color"},
         "trackColor": {"$ref": "#/$defs/color"},
         "textColor": {"$ref": "#/$defs/color"},
-        "enabled": {"type": "boolean"},
+        "enabled": {"type": "boolean", "default": true},
         "icon": {"$ref": "#/$defs/icon"},
         "vibrateSequence": {"$ref": "#/$defs/vibrateSequence"},
         "action": {"$ref": "#/$defs/action"}
-      }
+      },
+      "additionalProperties": false
     },
     "slideAction": {
       "type": "object",
+      "description": "Drag-to-confirm control. The action runs after the thumb crosses threshold.",
       "required": ["type", "id", "label"],
       "properties": {
         "type": {"enum": ["slide_action", "slide_to_action", "slideAction"]},
-        "id": {"type": "string", "minLength": 1},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 120},
-        "completedLabel": {"type": "string", "maxLength": 120},
-        "threshold": {"type": "number", "minimum": 0.5, "maximum": 1},
+        "label": {"type": "string", "minLength": 1, "maxLength": 120},
+        "completedLabel": {"type": "string", "minLength": 1, "maxLength": 120},
+        "threshold": {"type": "number", "minimum": 0.5, "maximum": 1, "default": 0.82},
         "color": {"$ref": "#/$defs/color"},
         "trackColor": {"$ref": "#/$defs/color"},
         "textColor": {"$ref": "#/$defs/color"},
-        "enabled": {"type": "boolean"},
+        "enabled": {"type": "boolean", "default": true},
         "icon": {"$ref": "#/$defs/icon"},
         "vibrateSequence": {"$ref": "#/$defs/vibrateSequence"},
         "action": {"$ref": "#/$defs/action"}
-      }
+      },
+      "additionalProperties": false
     },
     "badge": {
       "type": "object",
       "required": ["type", "label"],
       "properties": {
         "type": {"const": "badge"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 80},
-        "tone": {"enum": ["accent", "danger", "surface", "background"]},
+        "label": {"type": "string", "minLength": 1, "maxLength": 80},
+        "tone": {"enum": ["accent", "danger", "surface", "background"], "default": "accent"},
         "icon": {"$ref": "#/$defs/icon"}
-      }
+      },
+      "additionalProperties": false
     },
     "progress": {
       "type": "object",
-      "required": ["type", "value"],
+      "required": ["type"],
       "properties": {
         "type": {"const": "progress"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "value": {"type": "number", "minimum": 0, "maximum": 1},
-        "label": {"type": "string"},
-        "showValue": {"type": "boolean"},
+        "value": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
+        "label": {"type": "string", "minLength": 1},
+        "showValue": {"type": "boolean", "default": false},
         "color": {"$ref": "#/$defs/color"},
         "trackColor": {"$ref": "#/$defs/color"}
-      }
+      },
+      "additionalProperties": false
     },
     "image": {
       "type": "object",
       "required": ["type", "url"],
       "properties": {
         "type": {"const": "image"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
         "url": {"type": "string", "pattern": "^https?://"},
         "description": {"type": "string"},
-        "height": {"type": "number", "minimum": 48, "maximum": 480},
-        "cornerRadius": {"type": "number", "minimum": 0, "maximum": 64},
-        "contentScale": {"enum": ["crop", "fit", "inside", "fillBounds", "fill_bounds"]}
-      }
+        "height": {
+          "type": "number",
+          "minimum": 48,
+          "maximum": 480,
+          "default": 180,
+          "description": "Default image height in dp; style.height takes precedence when provided."
+        },
+        "cornerRadius": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 18,
+          "description": "Default image radius in dp; style.radius takes precedence when provided."
+        },
+        "contentScale": {
+          "enum": ["crop", "fit", "inside", "fillBounds", "fill_bounds"],
+          "default": "crop"
+        }
+      },
+      "additionalProperties": false
     },
     "checklist": {
       "type": "object",
+      "description": "Persistent checkbox list. State is keyed by document ID, checklist ID, and item ID. Each item may also expose an independent action.",
       "required": ["type", "id", "items"],
       "properties": {
         "type": {"const": "checklist"},
-        "id": {"type": "string", "minLength": 1},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
         "items": {
           "type": "array",
@@ -457,37 +923,66 @@
             "required": ["id", "label"],
             "properties": {
               "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-              "label": {"type": "string", "maxLength": 240},
-              "checked": {"type": "boolean"},
-              "enabled": {"type": "boolean"}
+              "label": {"type": "string", "minLength": 1, "maxLength": 240},
+              "checked": {
+                "type": "boolean",
+                "default": false,
+                "description": "Initial value used only until persisted state exists."
+              },
+              "enabled": {"type": "boolean", "default": true},
+              "action": {"$ref": "#/$defs/action"},
+              "buttonLabel": {
+                "type": "string",
+                "maxLength": 40,
+                "description": "Visible label for the optional item action button, or its accessibility label when actionIcon is set. Defaults to Navigate, Open, Dial, Run, or Close based on the action type."
+              },
+              "actionIcon": {
+                "$ref": "#/$defs/icon",
+                "description": "When set, replaces the visible action text with this icon."
+              }
+            },
+            "dependentRequired": {
+              "buttonLabel": ["action"],
+              "actionIcon": ["action"]
             },
             "additionalProperties": false
           }
         },
-        "action": {"$ref": "#/$defs/action"}
-      }
+        "action": {
+          "$ref": "#/$defs/action",
+          "description": "Optional callback run after any checkbox changes. Broadcast callbacks receive event=change, element_id=item.id, and value=true or false."
+        }
+      },
+      "additionalProperties": false
     },
     "link": {
       "type": "object",
+      "description": "Single tappable HTTP(S) link opened through Android.",
       "required": ["type", "id", "label", "url"],
       "properties": {
         "type": {"const": "link"},
-        "id": {"type": "string", "minLength": 1},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 240},
+        "label": {"type": "string", "minLength": 1, "maxLength": 240},
         "url": {"type": "string", "pattern": "^https?://"},
         "description": {"type": "string", "maxLength": 500},
         "icon": {"$ref": "#/$defs/icon"}
-      }
+      },
+      "additionalProperties": false
     },
     "linkList": {
       "type": "object",
+      "description": "List of tappable HTTP(S) links, optionally with persistent checkboxes.",
       "required": ["type", "links"],
       "properties": {
         "type": {"enum": ["linkList", "link_list"]},
-        "id": {"type": "string"},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "checkable": {"type": "boolean"},
+        "checkable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Adds persistent checkboxes. When true, the list ID is required."
+        },
         "links": {
           "type": "array",
           "minItems": 1,
@@ -496,47 +991,69 @@
             "type": "object",
             "required": ["id", "label", "url"],
             "properties": {
-              "id": {"type": "string", "minLength": 1},
-              "label": {"type": "string", "maxLength": 240},
+              "id": {"$ref": "#/$defs/elementId"},
+              "label": {"type": "string", "minLength": 1, "maxLength": 240},
               "url": {"type": "string", "pattern": "^https?://"},
               "description": {"type": "string", "maxLength": 500},
               "icon": {"$ref": "#/$defs/icon"},
-              "checked": {"type": "boolean"}
+              "checked": {
+                "type": "boolean",
+                "default": false,
+                "description": "Initial value used only until persisted state exists."
+              }
             },
             "additionalProperties": false
           }
         }
-      }
+      },
+      "if": {
+        "required": ["checkable"],
+        "properties": {"checkable": {"const": true}}
+      },
+      "then": {"required": ["id"]},
+      "additionalProperties": false
     },
     "address": {
       "type": "object",
+      "description": "Single address row whose action opens Android navigation.",
       "required": ["type", "id", "address"],
       "properties": {
         "type": {"const": "address"},
-        "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 240},
+        "label": {"type": "string", "minLength": 1, "maxLength": 240},
         "address": {"type": "string", "minLength": 1, "maxLength": 500},
         "description": {"type": "string", "maxLength": 500},
         "icon": {"$ref": "#/$defs/icon"},
         "latitude": {"type": "number", "minimum": -90, "maximum": 90},
         "longitude": {"type": "number", "minimum": -180, "maximum": 180},
-        "buttonLabel": {"type": "string", "maxLength": 40},
+        "buttonLabel": {"type": "string", "maxLength": 40, "default": "Navigate"},
         "chooserTitle": {"type": "string", "maxLength": 80},
         "closeAfter": {
           "type": "boolean",
-          "description": "Close after navigation instead of the default automatic minimization."
+          "default": false,
+          "description": "When true, closes after navigation opens. Otherwise the document remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
         }
-      }
+      },
+      "dependentRequired": {
+        "latitude": ["longitude"],
+        "longitude": ["latitude"]
+      },
+      "additionalProperties": false
     },
     "addressList": {
       "type": "object",
+      "description": "List of address navigation rows, optionally with persistent checkboxes.",
       "required": ["type", "addresses"],
       "properties": {
         "type": {"enum": ["addressList", "address_list"]},
-        "id": {"type": "string"},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "checkable": {"type": "boolean"},
+        "checkable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Adds persistent checkboxes. When true, the list ID is required."
+        },
         "addresses": {
           "type": "array",
           "minItems": 1,
@@ -545,48 +1062,75 @@
             "type": "object",
             "required": ["id", "address"],
             "properties": {
-              "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-              "label": {"type": "string", "maxLength": 240},
+              "id": {"$ref": "#/$defs/elementId"},
+              "label": {"type": "string", "minLength": 1, "maxLength": 240},
               "address": {"type": "string", "minLength": 1, "maxLength": 500},
               "description": {"type": "string", "maxLength": 500},
               "icon": {"$ref": "#/$defs/icon"},
               "latitude": {"type": "number", "minimum": -90, "maximum": 90},
               "longitude": {"type": "number", "minimum": -180, "maximum": 180},
-              "buttonLabel": {"type": "string", "maxLength": 40},
+              "buttonLabel": {"type": "string", "maxLength": 40, "default": "Navigate"},
               "chooserTitle": {"type": "string", "maxLength": 80},
-              "checked": {"type": "boolean"},
+              "checked": {
+                "type": "boolean",
+                "default": false,
+                "description": "Initial value used only until persisted state exists."
+              },
               "closeAfter": {
                 "type": "boolean",
-                "description": "Close after navigation instead of the default automatic minimization."
+                "default": false,
+                "description": "When true, closes after navigation opens. Otherwise the document remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
               }
-            }
+            },
+            "dependentRequired": {
+              "latitude": ["longitude"],
+              "longitude": ["latitude"]
+            },
+            "additionalProperties": false
           }
         }
-      }
+      },
+      "if": {
+        "required": ["checkable"],
+        "properties": {"checkable": {"const": true}}
+      },
+      "then": {"required": ["id"]},
+      "additionalProperties": false
     },
     "phone": {
       "type": "object",
+      "description": "Single phone row that opens Android's dialer without placing a call.",
       "required": ["type", "id", "phoneNumber"],
       "properties": {
         "type": {"const": "phone"},
-        "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "label": {"type": "string", "maxLength": 240},
+        "label": {"type": "string", "minLength": 1, "maxLength": 240},
         "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
         "description": {"type": "string", "maxLength": 500},
         "icon": {"$ref": "#/$defs/icon"},
-        "buttonLabel": {"type": "string", "maxLength": 40},
-        "closeAfter": {"type": "boolean"}
-      }
+        "buttonLabel": {"type": "string", "maxLength": 40, "default": "Dial"},
+        "closeAfter": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, closes after the dialer opens. Otherwise the document remains visible unless minimizable is true and the user's Minimize after actions preference is enabled."
+        }
+      },
+      "additionalProperties": false
     },
     "phoneList": {
       "type": "object",
+      "description": "List of dialer actions, optionally with persistent checkboxes.",
       "required": ["type", "phones"],
       "properties": {
         "type": {"enum": ["phoneList", "phone_list"]},
-        "id": {"type": "string"},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "checkable": {"type": "boolean"},
+        "checkable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Adds persistent checkboxes. When true, the list ID is required."
+        },
         "phones": {
           "type": "array",
           "minItems": 1,
@@ -595,27 +1139,43 @@
             "type": "object",
             "required": ["id", "phoneNumber"],
             "properties": {
-              "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-              "label": {"type": "string", "maxLength": 240},
+              "id": {"$ref": "#/$defs/elementId"},
+              "label": {"type": "string", "minLength": 1, "maxLength": 240},
               "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
               "description": {"type": "string", "maxLength": 500},
               "icon": {"$ref": "#/$defs/icon"},
-              "buttonLabel": {"type": "string", "maxLength": 40},
-              "closeAfter": {"type": "boolean"},
-              "checked": {"type": "boolean"}
-            }
+              "buttonLabel": {"type": "string", "maxLength": 40, "default": "Dial"},
+              "closeAfter": {"type": "boolean", "default": false},
+              "checked": {
+                "type": "boolean",
+                "default": false,
+                "description": "Initial value used only until persisted state exists."
+              }
+            },
+            "additionalProperties": false
           }
         }
-      }
+      },
+      "if": {
+        "required": ["checkable"],
+        "properties": {"checkable": {"const": true}}
+      },
+      "then": {"required": ["id"]},
+      "additionalProperties": false
     },
     "actionList": {
       "type": "object",
+      "description": "Mixed address, phone, and HTTP(S) link actions, optionally with persistent checkboxes.",
       "required": ["type", "items"],
       "properties": {
         "type": {"enum": ["actionList", "action_list"]},
-        "id": {"type": "string"},
+        "id": {"$ref": "#/$defs/elementId"},
         "style": {"$ref": "#/$defs/style"},
-        "checkable": {"type": "boolean"},
+        "checkable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Adds persistent checkboxes. When true, the list ID is required."
+        },
         "items": {
           "type": "array",
           "minItems": 1,
@@ -627,118 +1187,168 @@
                 "required": ["type", "id", "address"],
                 "properties": {
                   "type": {"const": "address"},
-                  "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-                  "label": {"type": "string", "maxLength": 240},
+                  "id": {"$ref": "#/$defs/elementId"},
+                  "label": {"type": "string", "minLength": 1, "maxLength": 240},
                   "address": {"type": "string", "minLength": 1, "maxLength": 500},
                   "description": {"type": "string", "maxLength": 500},
                   "icon": {"$ref": "#/$defs/icon"},
                   "latitude": {"type": "number", "minimum": -90, "maximum": 90},
                   "longitude": {"type": "number", "minimum": -180, "maximum": 180},
-                  "buttonLabel": {"type": "string", "maxLength": 40},
+                  "buttonLabel": {"type": "string", "maxLength": 40, "default": "Navigate"},
                   "chooserTitle": {"type": "string", "maxLength": 80},
-                  "checked": {"type": "boolean"},
-                  "closeAfter": {
-                    "type": "boolean",
-                    "description": "Close after navigation instead of the default automatic minimization."
-                  }
-                }
+                  "checked": {"type": "boolean", "default": false},
+                  "closeAfter": {"type": "boolean", "default": false}
+                },
+                "dependentRequired": {
+                  "latitude": ["longitude"],
+                  "longitude": ["latitude"]
+                },
+                "additionalProperties": false
               },
               {
                 "type": "object",
                 "required": ["type", "id", "phoneNumber"],
                 "properties": {
                   "type": {"const": "phone"},
-                  "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-                  "label": {"type": "string", "maxLength": 240},
+                  "id": {"$ref": "#/$defs/elementId"},
+                  "label": {"type": "string", "minLength": 1, "maxLength": 240},
                   "phoneNumber": {"type": "string", "pattern": "^[+0-9*#(). -]{3,40}$"},
                   "description": {"type": "string", "maxLength": 500},
                   "icon": {"$ref": "#/$defs/icon"},
-                  "buttonLabel": {"type": "string", "maxLength": 40},
-                  "closeAfter": {"type": "boolean"},
-                  "checked": {"type": "boolean"}
-                }
+                  "buttonLabel": {"type": "string", "maxLength": 40, "default": "Dial"},
+                  "closeAfter": {"type": "boolean", "default": false},
+                  "checked": {"type": "boolean", "default": false}
+                },
+                "additionalProperties": false
               },
               {
                 "type": "object",
                 "required": ["type", "id", "label", "url"],
                 "properties": {
                   "type": {"const": "link"},
-                  "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,80}$"},
-                  "label": {"type": "string", "maxLength": 240},
+                  "id": {"$ref": "#/$defs/elementId"},
+                  "label": {"type": "string", "minLength": 1, "maxLength": 240},
                   "url": {"type": "string", "pattern": "^https?://"},
                   "description": {"type": "string", "maxLength": 500},
                   "icon": {"$ref": "#/$defs/icon"},
-                  "buttonLabel": {"type": "string", "maxLength": 40},
-                  "closeAfter": {"type": "boolean"},
-                  "checked": {"type": "boolean"}
-                }
+                  "buttonLabel": {"type": "string", "maxLength": 40, "default": "Open"},
+                  "closeAfter": {"type": "boolean", "default": false},
+                  "checked": {"type": "boolean", "default": false}
+                },
+                "additionalProperties": false
               }
             ]
           }
         }
-      }
+      },
+      "if": {
+        "required": ["checkable"],
+        "properties": {"checkable": {"const": true}}
+      },
+      "then": {"required": ["id"]},
+      "additionalProperties": false
     },
     "map": {
       "type": "object",
+      "description": "Embedded native Google map. Rendering requires a valid build-time MAPS_API_KEY; otherwise a configuration message is shown.",
       "required": ["type", "latitude", "longitude"],
       "properties": {
         "type": {"const": "map"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
         "latitude": {"type": "number", "minimum": -90, "maximum": 90},
         "longitude": {"type": "number", "minimum": -180, "maximum": 180},
-        "zoom": {"type": "integer", "minimum": 1, "maximum": 19},
+        "zoom": {"type": "integer", "minimum": 1, "maximum": 19, "default": 14},
         "markerLabel": {"type": "string", "maxLength": 120},
-        "height": {"type": "number", "minimum": 120, "maximum": 520},
-        "mapType": {"enum": ["normal", "satellite", "terrain", "hybrid"]},
-        "gestures": {"type": "boolean"},
-        "controls": {"type": "boolean"}
-      }
+        "height": {
+          "type": "number",
+          "minimum": 120,
+          "maximum": 520,
+          "default": 220,
+          "description": "Default map height in dp; style.height takes precedence when provided."
+        },
+        "mapType": {
+          "enum": ["normal", "satellite", "terrain", "hybrid"],
+          "default": "normal"
+        },
+        "gestures": {"type": "boolean", "default": true},
+        "controls": {"type": "boolean", "default": false}
+      },
+      "additionalProperties": false
     },
     "video": {
       "type": "object",
+      "description": "Embedded HTTP(S) video player.",
       "required": ["type", "url"],
       "properties": {
         "type": {"const": "video"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
         "url": {"type": "string", "pattern": "^https?://"},
-        "autoplay": {"type": "boolean"},
-        "controls": {"type": "boolean"},
-        "height": {"type": "number", "minimum": 120, "maximum": 520}
-      }
+        "autoplay": {"type": "boolean", "default": false},
+        "controls": {"type": "boolean", "default": true},
+        "height": {
+          "type": "number",
+          "minimum": 120,
+          "maximum": 520,
+          "default": 220,
+          "description": "Default video height in dp; style.height takes precedence when provided."
+        }
+      },
+      "additionalProperties": false
     },
     "web": {
       "type": "object",
+      "description": "Sandboxed local HTML rendered in a WebView. This component accepts inline HTML, not a remote page URL, and exposes no JavaScript bridge.",
       "required": ["type", "html"],
       "properties": {
         "type": {"const": "web"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "html": {"type": "string", "maxLength": 65536},
-        "javaScriptEnabled": {"type": "boolean"},
-        "height": {"type": "number", "minimum": 80, "maximum": 600}
-      }
+        "html": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536,
+          "description": "Inline HTML limited by the parser to 64 KiB of UTF-8 bytes."
+        },
+        "javaScriptEnabled": {"type": "boolean", "default": false},
+        "height": {
+          "type": "number",
+          "minimum": 80,
+          "maximum": 600,
+          "default": 220,
+          "description": "Default WebView height in dp; style.height takes precedence when provided."
+        }
+      },
+      "additionalProperties": false
     },
     "divider": {
       "type": "object",
       "required": ["type"],
       "properties": {
         "type": {"const": "divider"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
         "color": {"$ref": "#/$defs/color"}
-      }
+      },
+      "additionalProperties": false
     },
     "spacer": {
       "type": "object",
       "required": ["type"],
       "properties": {
         "type": {"const": "spacer"},
-        "id": {"type": "string"},
+        "id": {"type": "string", "minLength": 1},
         "style": {"$ref": "#/$defs/style"},
-        "height": {"type": "number", "minimum": 0, "maximum": 240}
-      }
+        "height": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 240,
+          "default": 12,
+          "description": "Default spacer height in dp; style.height takes precedence when provided."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

@@ -106,6 +106,8 @@ class MainActivity : ComponentActivity() {
     private var networkAddress by mutableStateOf("")
     private var networkToken by mutableStateOf("")
     private var pullDownAction by mutableStateOf(PullDownAction.Minimize)
+    private var outsideTapAction by mutableStateOf(OutsideTapAction.Minimize)
+    private var launchAtBoot by mutableStateOf(true)
     private var minimizeOnAction by mutableStateOf(false)
     private var sheetControlsSide by mutableStateOf(SheetControlsSide.Right)
     private var networkSettings by mutableStateOf(
@@ -130,6 +132,8 @@ class MainActivity : ComponentActivity() {
         networkAddress = ScouterNetworkConfig.localAddress(this)
         networkToken = ScouterNetworkConfig.token(this)
         pullDownAction = ScouterPreferences.pullDownAction(this)
+        outsideTapAction = ScouterPreferences.outsideTapAction(this)
+        launchAtBoot = ScouterPreferences.launchAtBoot(this)
         minimizeOnAction = ScouterPreferences.minimizeOnAction(this)
         sheetControlsSide = ScouterPreferences.sheetControlsSide(this)
         refreshHistory()
@@ -155,6 +159,8 @@ class MainActivity : ComponentActivity() {
                 networkToken = networkToken,
                 networkSettings = networkSettings,
                 pullDownAction = pullDownAction,
+                outsideTapAction = outsideTapAction,
+                launchAtBoot = launchAtBoot,
                 minimizeOnAction = minimizeOnAction,
                 sheetControlsSide = sheetControlsSide,
                 requestOverlay = ::requestOverlay,
@@ -164,6 +170,8 @@ class MainActivity : ComponentActivity() {
                 onSaveNetwork = ::saveNetworkSettings,
                 onRegenerateToken = ::regenerateNetworkToken,
                 onPullDownActionChange = ::savePullDownAction,
+                onOutsideTapActionChange = ::saveOutsideTapAction,
+                onLaunchAtBootChange = ::saveLaunchAtBoot,
                 onMinimizeOnActionChange = ::saveMinimizeOnAction,
                 onSheetControlsSideChange = ::saveSheetControlsSide,
                 reopenHistory = ::reopenHistory,
@@ -249,6 +257,18 @@ class MainActivity : ComponentActivity() {
     private fun savePullDownAction(action: PullDownAction) {
         ScouterPreferences.setPullDownAction(this, action)
         pullDownAction = action
+        refreshOverlayPreferences()
+    }
+
+    private fun saveOutsideTapAction(action: OutsideTapAction) {
+        ScouterPreferences.setOutsideTapAction(this, action)
+        outsideTapAction = action
+        refreshOverlayPreferences()
+    }
+
+    private fun saveLaunchAtBoot(enabled: Boolean) {
+        ScouterPreferences.setLaunchAtBoot(this, enabled)
+        launchAtBoot = enabled
     }
 
     private fun saveMinimizeOnAction(enabled: Boolean) {
@@ -259,6 +279,10 @@ class MainActivity : ComponentActivity() {
     private fun saveSheetControlsSide(side: SheetControlsSide) {
         ScouterPreferences.setSheetControlsSide(this, side)
         sheetControlsSide = side
+        refreshOverlayPreferences()
+    }
+
+    private fun refreshOverlayPreferences() {
         startForegroundService(
             Intent(this, ScouterOverlayService::class.java).apply {
                 action = ScouterOverlayService.ACTION_REFRESH_PREFERENCES
@@ -297,7 +321,8 @@ class MainActivity : ComponentActivity() {
 
 private enum class AppTab(val label: String) {
     Home("Home"),
-    Settings("Settings"),
+    Connect("Connect"),
+    Preferences("Preferences"),
     Permissions("Access"),
 }
 
@@ -316,6 +341,8 @@ private fun ScouterApp(
     networkToken: String,
     networkSettings: ScouterNetworkConfig.NetworkSettings,
     pullDownAction: PullDownAction,
+    outsideTapAction: OutsideTapAction,
+    launchAtBoot: Boolean,
     minimizeOnAction: Boolean,
     sheetControlsSide: SheetControlsSide,
     notificationsGranted: Boolean,
@@ -327,6 +354,8 @@ private fun ScouterApp(
     onSaveNetwork: (Boolean, String, String) -> String?,
     onRegenerateToken: () -> Unit,
     onPullDownActionChange: (PullDownAction) -> Unit,
+    onOutsideTapActionChange: (OutsideTapAction) -> Unit,
+    onLaunchAtBootChange: (Boolean) -> Unit,
     onMinimizeOnActionChange: (Boolean) -> Unit,
     onSheetControlsSideChange: (SheetControlsSide) -> Unit,
     reopenHistory: (ScouterHistoryEntry) -> Unit,
@@ -346,17 +375,22 @@ private fun ScouterApp(
                         reopenHistory = reopenHistory,
                         clearHistory = clearHistory,
                     )
-                    AppTab.Settings -> SettingsScreen(
+                    AppTab.Connect, AppTab.Preferences -> ConfigurationScreen(
+                        page = currentTab,
                         settings = networkSettings,
                         address = networkAddress,
                         token = networkToken,
                         pullDownAction = pullDownAction,
+                        outsideTapAction = outsideTapAction,
+                        launchAtBoot = launchAtBoot,
                         minimizeOnAction = minimizeOnAction,
                         sheetControlsSide = sheetControlsSide,
                         onBack = { onTabSelected(AppTab.Home) },
                         onSaveNetwork = onSaveNetwork,
                         onRegenerateToken = onRegenerateToken,
                         onPullDownActionChange = onPullDownActionChange,
+                        onOutsideTapActionChange = onOutsideTapActionChange,
+                        onLaunchAtBootChange = onLaunchAtBootChange,
                         onMinimizeOnActionChange = onMinimizeOnActionChange,
                         onSheetControlsSideChange = onSheetControlsSideChange,
                     )
@@ -387,7 +421,8 @@ private fun ScouterBottomBar(currentTab: AppTab, onTabSelected: (AppTab) -> Unit
                     Icon(
                         imageVector = when (tab) {
                             AppTab.Home -> Icons.Filled.Home
-                            AppTab.Settings -> Icons.Filled.Settings
+                            AppTab.Connect -> Icons.Filled.Link
+                            AppTab.Preferences -> Icons.Filled.Settings
                             AppTab.Permissions -> Icons.Filled.Security
                         },
                         contentDescription = null,
@@ -687,17 +722,22 @@ private fun EmptyHistoryCard() {
 }
 
 @Composable
-private fun SettingsScreen(
+private fun ConfigurationScreen(
+    page: AppTab,
     settings: ScouterNetworkConfig.NetworkSettings,
     address: String,
     token: String,
     pullDownAction: PullDownAction,
+    outsideTapAction: OutsideTapAction,
+    launchAtBoot: Boolean,
     minimizeOnAction: Boolean,
     sheetControlsSide: SheetControlsSide,
     onBack: () -> Unit,
     onSaveNetwork: (Boolean, String, String) -> String?,
     onRegenerateToken: () -> Unit,
     onPullDownActionChange: (PullDownAction) -> Unit,
+    onOutsideTapActionChange: (OutsideTapAction) -> Unit,
+    onLaunchAtBootChange: (Boolean) -> Unit,
     onMinimizeOnActionChange: (Boolean) -> Unit,
     onSheetControlsSideChange: (SheetControlsSide) -> Unit,
 ) {
@@ -718,14 +758,15 @@ private fun SettingsScreen(
                     .padding(horizontal = 24.dp, vertical = 28.dp),
             ) {
                 Text(
-                    "Settings",
+                    if (page == AppTab.Connect) "Connect" else "Preferences",
                     color = Frost,
                     fontSize = 36.sp,
                     lineHeight = 40.sp,
                     fontWeight = FontWeight.Black,
                 )
                 Spacer(Modifier.height(28.dp))
-                Column(
+                if (page == AppTab.Connect) {
+                    Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Panel, RoundedCornerShape(20.dp))
@@ -808,6 +849,43 @@ private fun SettingsScreen(
                     ) {
                         Text("Save and restart", fontWeight = FontWeight.Bold)
                     }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                if (page == AppTab.Preferences) {
+                    Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Panel, RoundedCornerShape(20.dp))
+                        .padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Launch at boot",
+                            color = Frost,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Start the background service after a restart to restore cards and accept requests.",
+                            color = Sage,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                        )
+                    }
+                    Switch(
+                        checked = launchAtBoot,
+                        onCheckedChange = onLaunchAtBootChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Ink,
+                            checkedTrackColor = Acid,
+                            uncheckedThumbColor = Sage,
+                            uncheckedTrackColor = Ink,
+                        ),
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(
@@ -852,14 +930,14 @@ private fun SettingsScreen(
                         .padding(18.dp),
                 ) {
                     Text(
-                        "Control layout",
+                        "Tap outside card",
                         color = Frost,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        "Place the Close action on your preferred side.",
+                        "Choose what happens when the darkened area around the active card is tapped.",
                         color = Sage,
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -867,12 +945,12 @@ private fun SettingsScreen(
                     Spacer(Modifier.height(14.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        SheetControlsSide.entries.forEach { side ->
-                            val selected = side == sheetControlsSide
+                        OutsideTapAction.entries.forEach { action ->
+                            val selected = action == outsideTapAction
                             TextButton(
-                                onClick = { onSheetControlsSideChange(side) },
+                                onClick = { onOutsideTapActionChange(action) },
                                 modifier = Modifier.weight(1f).height(46.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.textButtonColors(
@@ -881,11 +959,13 @@ private fun SettingsScreen(
                                 ),
                             ) {
                                 Text(
-                                    when (side) {
-                                        SheetControlsSide.Left -> "Left-handed"
-                                        SheetControlsSide.Right -> "Right-handed"
+                                    when (action) {
+                                        OutsideTapAction.Minimize -> "Minimize"
+                                        OutsideTapAction.Close -> "Close"
+                                        OutsideTapAction.Nothing -> "Ignore"
                                     },
                                     maxLines = 1,
+                                    fontSize = 13.sp,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 )
                             }
@@ -940,13 +1020,15 @@ private fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Panel, RoundedCornerShape(20.dp))
-                        .padding(18.dp),
-                ) {
-                    Text("Access token", color = Frost, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (page == AppTab.Connect) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Panel, RoundedCornerShape(20.dp))
+                            .padding(18.dp),
+                    ) {
+                        Text("Access token", color = Frost, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(5.dp))
                     Text(
                         if (tokenVisible) token else "${token.take(8)}…${token.takeLast(4)}",
@@ -999,15 +1081,17 @@ private fun SettingsScreen(
                     ) {
                         Text(if (confirmTokenReset) "Confirm token regeneration" else "Regenerate token")
                     }
+                    }
+                    Spacer(Modifier.height(12.dp))
                 }
-                Spacer(Modifier.height(12.dp))
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Panel, RoundedCornerShape(20.dp))
-                        .padding(18.dp),
-                ) {
-                    Text("Renderer", color = Frost, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                if (page == AppTab.Preferences) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Panel, RoundedCornerShape(20.dp))
+                            .padding(18.dp),
+                    ) {
+                        Text("Renderer", color = Frost, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(5.dp))
                     Text("Protocol version 1 · 256 KiB payload limit", color = Sage, fontSize = 13.sp)
                     Spacer(Modifier.height(4.dp))
@@ -1020,6 +1104,55 @@ private fun SettingsScreen(
                         color = if (BuildConfig.GOOGLE_MAPS_CONFIGURED) Acid else Ember,
                         fontSize = 13.sp,
                     )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Panel, RoundedCornerShape(20.dp))
+                            .padding(18.dp),
+                    ) {
+                        Text(
+                            "Control layout",
+                            color = Frost,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Place the Close action on your preferred side.",
+                            color = Sage,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            SheetControlsSide.entries.forEach { side ->
+                                val selected = side == sheetControlsSide
+                                TextButton(
+                                    onClick = { onSheetControlsSideChange(side) },
+                                    modifier = Modifier.weight(1f).height(46.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = ButtonDefaults.textButtonColors(
+                                        containerColor = if (selected) Acid else Ink,
+                                        contentColor = if (selected) Ink else Frost,
+                                    ),
+                                ) {
+                                    Text(
+                                        when (side) {
+                                            SheetControlsSide.Left -> "Left-handed"
+                                            SheetControlsSide.Right -> "Right-handed"
+                                        },
+                                        maxLines = 1,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
                 Spacer(Modifier.height(24.dp))
             }

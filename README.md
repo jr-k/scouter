@@ -5,6 +5,14 @@
 </div>
 
 <p align="center">
+  <img src="./screenshots/recipe1.jpg" alt="Strawberry tart recipe ingredients" width="30%">
+  <img src="./screenshots/recipe2.jpg" alt="Strawberry tart recipe instructions" width="30%">
+  <img src="./screenshots/recipe3.jpg" alt="Strawberry tart completed checklist" width="30%">
+</p>
+
+<hr>
+
+<p align="center">
   <img src="./screenshots/flight.png" alt="Boarding pass overlay" width="30%">
   <img src="./screenshots/checklist.png" alt="Checklist overlay" width="30%">
   <img src="./screenshots/hold.png" alt="Press and hold overlay" width="30%">
@@ -18,7 +26,7 @@
 
 Scouter is a small server-driven UI renderer for Android. Send one JSON document through an intent, HTTP, or MCP; Scouter turns it into a native bottom sheet with no predefined screen or template.
 
-Sheets slide up from the bottom and update in place when an ID is reused. When several are active, Scouter displays one sheet at a time with a separate horizontal card switcher above it. They can also be minimized into local notifications and restored without opening the main activity.
+Sheets slide up from the bottom and update in place when an ID is reused. When several are active, swipe the sheet horizontally; footer dots show the current position. They can also be minimized into local notifications and restored without opening the main activity.
 
 The companion app keeps a persistent history of received cards. Its bottom navigation separates the card library, server settings, and Android access controls. Tapping a history item reopens that exact document without creating a duplicate history entry.
 
@@ -102,7 +110,7 @@ Every document has a protocol version, a stable ID, and a recursive content tree
 }
 ```
 
-The complete machine-readable contract lives in [`scouter.schema.json`](./scouter.schema.json).
+The complete machine-readable contract lives in [`scouter.schema.json`](./scouter.schema.json). It includes all component properties, defaults, limits, aliases, lifecycle semantics, and a representative document. Unknown properties are rejected by the canonical schema so misspellings do not silently become no-ops.
 
 ### Android intent
 
@@ -131,7 +139,7 @@ Other actions:
 
 ### REST
 
-The authenticated listener uses the host and port configured in Settings.
+The authenticated listener uses the host and port configured on the Connect page.
 
 ```bash
 curl \
@@ -208,22 +216,28 @@ Interaction:
 - `hold_button`
 - `slide_action`
 
-Actions can close the sheet, open a trusted HTTP(S) URL, open navigation, open the dialer, or send a package-targeted callback broadcast. Navigation opens Google Maps directly when available, falls back to the system chooser, and automatically minimizes the sheet into its notification.
+Actions can close the sheet, open a trusted HTTP(S) URL, open navigation, open the dialer, or send a package-targeted callback broadcast. Navigation opens Google Maps directly when available and falls back to the system chooser. External actions close the sheet when `closeAfter: true`; otherwise it stays visible unless the document is minimizable and the user enabled **Minimize after actions** in Preferences.
 
 Every component accepts a `style` object for dimensions, weight, padding, margin, background, opacity, radius, and border. Interactive elements require stable semantic IDs.
 
-Lists (`link_list`, `address_list`, `phone_list`, and `action_list`) accept `checkable: true`; in that mode the list itself needs a stable `id`. Each item may define its initial `checked` value. Scouter persists subsequent checkbox changes by document, list, and item ID, including after reopening a card from Home history. Regular `checklist` state is persisted the same way.
+Lists (`link_list`, `address_list`, `phone_list`, and `action_list`) accept `checkable: true`; in that mode the list itself needs a stable `id`. Each item may define its initial `checked` value. Scouter persists subsequent checkbox changes by document, list, and item ID, including after reopening a card from Home history. Regular `checklist` state is persisted the same way. A checklist item may also define an independent `action`, optional `buttonLabel`, and optional `actionIcon`; its action button does not toggle the checkbox, and the icon replaces visible button text when present.
+
+Global list actions use normal composition: place a list and one or more `button`, `hold_button`, or `slide_action` components in the same `column`. The `navigate_route` action opens an ordered route with an optional origin and 1–10 address or coordinate stops; this allows an `address_list` to keep its per-address navigation while a separate button launches the complete itinerary.
 
 ## Overlay lifecycle
 
-- A new ID adds another card to the horizontal overlay switcher.
+- A new ID adds another horizontally swipeable sheet and a corresponding footer dot.
 - Reusing an ID replaces the current or queued document and selects it.
 - Closing or swiping away Scouter's activity does not stop the detached foreground overlay service.
-- Active sheets are persisted and restored after a process restart, application update, or device reboot.
+- Active sheets are persisted and restored after a process restart, application update, or device reboot. Automatic restart after boot can be disabled in Preferences.
 - Minimizing stores the document and creates a configurable local notification.
+- `presentation.minimizable` defaults to `false` and must be set to `true` for the Minimize control to appear; `dismissible` defaults to `true`.
 - When Android is locked, incoming views are queued instead of forcing an overlay.
+- Locked delivery requires notification permission. If Android denies notification posting, Scouter does not retain an unreachable pending entry; the document remains available in Home history.
 - Tapping a card notification restores only the requested sheet over the current app; it never opens the companion activity.
-- A minimizable sheet can also be pulled down from its grey handle to create the notification.
+- The grey handle follows the user's Pull-down action preference (Minimize or Close) and is hidden when the selected action is not allowed by the document.
+- Long-pressing Close applies Close to every active sheet. Long-pressing Minimize minimizes only active sheets whose documents set `minimizable: true`.
+- Tapping the darkened area outside the active card minimizes it by default. Preferences can change this behavior to Close or Ignore; document `minimizable` and `dismissible` flags are always respected.
 - `CLOSE` removes both visible and queued views.
 
 Android force-stop is the one exception: after **Force stop**, the operating system blocks every receiver and service until Scouter is opened manually again. Persisted sheets are restored at that point.
