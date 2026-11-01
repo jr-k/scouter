@@ -5,14 +5,6 @@
 </div>
 
 <p align="center">
-  <img src="./screenshots/recipe1.jpg" alt="Strawberry tart recipe ingredients" width="30%">
-  <img src="./screenshots/recipe2.jpg" alt="Strawberry tart recipe instructions" width="30%">
-  <img src="./screenshots/recipe3.jpg" alt="Strawberry tart completed checklist" width="30%">
-</p>
-
-<hr>
-
-<p align="center">
   <img src="./screenshots/flight.png" alt="Boarding pass overlay" width="30%">
   <img src="./screenshots/checklist.png" alt="Checklist overlay" width="30%">
   <img src="./screenshots/hold.png" alt="Press and hold overlay" width="30%">
@@ -22,6 +14,14 @@
   <img src="./screenshots/contact.png" alt="Contact and navigation overlay" width="30%">
   <img src="./screenshots/focus.png" alt="Focus timer overlay" width="30%">
   <img src="./screenshots/telemetry.png" alt="Telemetry overlay" width="30%">
+</p>
+
+<hr>
+
+<p align="center">
+  <img src="./screenshots/recipe1.jpg" alt="Strawberry tart recipe ingredients" width="30%">
+  <img src="./screenshots/recipe2.jpg" alt="Strawberry tart recipe instructions" width="30%">
+  <img src="./screenshots/recipe3.jpg" alt="Strawberry tart completed checklist" width="30%">
 </p>
 
 Scouter is a small server-driven UI renderer for Android. Send one JSON document through an intent, HTTP, or MCP; Scouter turns it into a native bottom sheet with no predefined screen or template.
